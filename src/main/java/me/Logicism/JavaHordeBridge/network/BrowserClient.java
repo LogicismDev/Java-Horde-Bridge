@@ -4,6 +4,7 @@ import javax.net.ssl.HttpsURLConnection;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 public class BrowserClient {
@@ -67,7 +68,7 @@ public class BrowserClient {
             c.setDoOutput(true);
 
             DataOutputStream dos = new DataOutputStream(c.getOutputStream());
-            dos.writeBytes(data);
+            dos.write(data.getBytes(StandardCharsets.UTF_8));
             dos.flush();
             dos.close();
 
@@ -93,7 +94,7 @@ public class BrowserClient {
             c.setDoOutput(true);
 
             DataOutputStream dos = new DataOutputStream(c.getOutputStream());
-            dos.writeBytes(data);
+            dos.write(data.getBytes(StandardCharsets.UTF_8));
             dos.flush();
             dos.close();
 
@@ -123,7 +124,7 @@ public class BrowserClient {
             c.setDoOutput(true);
 
             DataOutputStream dos = new DataOutputStream(c.getOutputStream());
-            dos.writeBytes(data);
+            dos.write(data.getBytes(StandardCharsets.UTF_8));
             dos.flush();
             dos.close();
 
@@ -149,7 +150,7 @@ public class BrowserClient {
             c.setDoOutput(true);
 
             DataOutputStream dos = new DataOutputStream(c.getOutputStream());
-            dos.writeBytes(data);
+            dos.write(data.getBytes(StandardCharsets.UTF_8));
             dos.flush();
             dos.close();
 

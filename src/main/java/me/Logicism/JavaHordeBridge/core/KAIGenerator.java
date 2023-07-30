@@ -28,6 +28,7 @@ public class KAIGenerator {
         int retryCount = 0;
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
+        headers.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
         while (generation.isEmpty()) {
             try {
                 BrowserData generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/api/latest/generate"), payload.toString(), headers);
@@ -39,16 +40,34 @@ public class KAIGenerator {
                 } else if (generationData.getResponseCode() == 422) {
                     generation = "payload validation error";
                 } else if (generationData.getResponseCode() == 503) {
-                    bridge.getLogger().debug("Client is busy (attempt " + retryCount++ + " ), retrying generation...");
+                    bridge.getLogger().debug("Client is busy (attempt " + retryCount++ + "), retrying generation...");
+
+                    try {
+                        TimeUnit.SECONDS.sleep(1);
+                    } catch (InterruptedException ignored) {
+                    }
+                } else {
+                    bridge.getLogger().debug("Client responded with " + generationData.getResponseCode() + " (attempt " + retryCount++ + "), retrying generation...");
+
+                    try {
+                        TimeUnit.SECONDS.sleep(1);
+                    } catch (InterruptedException ignored) {
+                    }
                 }
             } catch (JSONException e) {
-                bridge.getLogger().debug("Client returned unexpected response (attempt " + retryCount++ + " ), retrying generation in 10 seconds...");
+                bridge.getLogger().debug("Client returned unexpected response (attempt " + retryCount++ + "), retrying generation in 10 seconds...");
+
                 try {
                     TimeUnit.SECONDS.sleep(10);
                 } catch (InterruptedException ignored) {
                 }
             } catch (IOException e) {
-                bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + " ), retrying generation...");
+                bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + "), retrying generation...");
+
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+                } catch (InterruptedException ignored) {
+                }
             }
         }
 
