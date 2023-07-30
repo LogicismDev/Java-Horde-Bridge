@@ -1,14 +1,14 @@
 package me.Logicism.JavaHordeBridge.console;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class HordeLogger {
 
     private static Logger logger;
 
     public HordeLogger(Class<?> clazz) {
-        logger = LoggerFactory.getLogger(clazz);
+        logger = LogManager.getLogger(clazz);
 
         LoggingOutputStream.redirectSysOutAndSysErr(logger);
     }

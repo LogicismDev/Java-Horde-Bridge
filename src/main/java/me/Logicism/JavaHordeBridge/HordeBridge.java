@@ -6,6 +6,7 @@ import me.Logicism.JavaHordeBridge.console.HordeLogger;
 import me.Logicism.JavaHordeBridge.runnables.TextHordeRunnable;
 import me.Logicism.JavaHordeBridge.core.KAIGenerator;
 import org.apache.commons.cli.*;
+import org.fusesource.jansi.AnsiConsole;
 
 import java.io.File;
 import java.io.IOException;
@@ -34,6 +35,8 @@ public class HordeBridge {
     private static ExecutorService service = Executors.newSingleThreadExecutor();
 
     public static void main(String[] args) {
+        AnsiConsole.systemInstall();
+
         Options options = new Options();
 
         Option interval = Option.builder("i").longOpt("interval").argName("interval").hasArg().desc("The interval to check if there are new generations").numberOfArgs(1).build();

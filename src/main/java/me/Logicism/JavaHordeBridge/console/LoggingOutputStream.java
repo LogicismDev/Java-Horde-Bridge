@@ -1,6 +1,6 @@
 package me.Logicism.JavaHordeBridge.console;
 
-import org.slf4j.Logger;
+import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
