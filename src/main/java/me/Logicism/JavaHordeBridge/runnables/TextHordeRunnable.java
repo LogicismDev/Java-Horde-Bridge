@@ -41,7 +41,7 @@ public class TextHordeRunnable implements Runnable {
     @Override
     public void run() {
         while (isRunning) {
-            if (clientData == null && lastValidated == null || System.currentTimeMillis() - lastValidated <= 30) {
+            if (clientData == null && lastValidated == null || System.currentTimeMillis() - lastValidated >= 30) {
                 try {
                     bridge.getLogger().debug("Retrieving KoboldAI Worker Settings...");
                     clientData = bridge.getGenerator().validateClient(kaiName, priorityUsernames);
