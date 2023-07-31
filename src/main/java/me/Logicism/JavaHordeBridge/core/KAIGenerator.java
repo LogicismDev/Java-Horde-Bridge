@@ -40,32 +40,32 @@ public class KAIGenerator {
                 } else if (generationData.getResponseCode() == 422) {
                     generation = "payload validation error";
                 } else if (generationData.getResponseCode() == 503) {
-                    bridge.getLogger().debug("Client is busy (attempt " + retryCount++ + "), retrying generation...");
+                    bridge.getLogger().debug("Client is busy (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                     try {
-                        TimeUnit.SECONDS.sleep(1);
+                        TimeUnit.SECONDS.sleep(5);
                     } catch (InterruptedException ignored) {
                     }
                 } else {
-                    bridge.getLogger().debug("Client responded with " + generationData.getResponseCode() + " (attempt " + retryCount++ + "), retrying generation...");
+                    bridge.getLogger().debug("Client responded with " + generationData.getResponseCode() + " (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                     try {
-                        TimeUnit.SECONDS.sleep(1);
+                        TimeUnit.SECONDS.sleep(5);
                     } catch (InterruptedException ignored) {
                     }
                 }
             } catch (JSONException e) {
-                bridge.getLogger().debug("Client returned unexpected response (attempt " + retryCount++ + "), retrying generation in 10 seconds...");
+                bridge.getLogger().debug("Client returned unexpected response (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                 try {
-                    TimeUnit.SECONDS.sleep(10);
+                    TimeUnit.SECONDS.sleep(5);
                 } catch (InterruptedException ignored) {
                 }
             } catch (IOException e) {
-                bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + "), retrying generation...");
+                bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                 try {
-                    TimeUnit.SECONDS.sleep(1);
+                    TimeUnit.SECONDS.sleep(5);
                 } catch (InterruptedException ignored) {
                 }
             }
