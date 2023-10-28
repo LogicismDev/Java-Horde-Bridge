@@ -24,12 +24,12 @@ public class KAIGenerator {
     }
 
     public String startGeneration(JSONObject payload) {
-        String generation = "";
+        String generation = null;
         int retryCount = 0;
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         headers.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
-        while (generation.isEmpty()) {
+        while (retryCount < 5) {
             try {
                 BrowserData generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/api/latest/generate"), payload.toString(), headers);
 
@@ -37,8 +37,12 @@ public class KAIGenerator {
                     JSONObject generationObject = new JSONObject(BrowserClient.requestToString(generationData.getResponse()));
 
                     generation = generationObject.getJSONArray("results").getJSONObject(0).getString("text");
+
+                    break;
                 } else if (generationData.getResponseCode() == 422) {
                     generation = "payload validation error";
+
+                    break;
                 } else if (generationData.getResponseCode() == 503) {
                     bridge.getLogger().debug("Client is busy (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
