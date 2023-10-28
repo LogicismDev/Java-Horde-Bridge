@@ -24,6 +24,7 @@ public class TextHordeRunnable implements Runnable {
     private String[] priorityUsernames;
 
     private boolean isRunning = true;
+    private int failedRequestsCount = 0;
     private Long lastValidated = null;
     private JSONObject clientData = null;
     private String currentId = "";
@@ -41,12 +42,27 @@ public class TextHordeRunnable implements Runnable {
     @Override
     public void run() {
         while (isRunning) {
+            if (failedRequestsCount > 3) {
+                bridge.getLogger().error("Exceeded 3 failed requests in a row, shutting down bridge in 5 seconds!");
+
+                try {
+                    TimeUnit.SECONDS.sleep(5);
+                } catch (InterruptedException ignored) {
+                }
+
+                System.exit(0);
+            }
+
             if (clientData == null && lastValidated == null || System.currentTimeMillis() - lastValidated >= 30000) {
                 try {
                     bridge.getLogger().debug("Retrieving KoboldAI Worker Settings...");
                     clientData = bridge.getGenerator().validateClient(kaiName, priorityUsernames);
                     lastValidated = System.currentTimeMillis();
+
+                    failedRequestsCount = 0;
                 } catch (IOException e) {
+                    failedRequestsCount++;
+
                     bridge.getLogger().error("Cannot connect to KoboldAI Client! ("
                             + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
@@ -55,6 +71,8 @@ public class TextHordeRunnable implements Runnable {
                     } catch (InterruptedException ignored) {
                     }
                 } catch (JSONException e) {
+                    failedRequestsCount++;
+
                     bridge.getLogger().error("Client is up but has invalid response! ("
                             + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
@@ -76,6 +94,8 @@ public class TextHordeRunnable implements Runnable {
                     JSONObject popObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
                     if (bd.getResponseCode() == 200) {
                         if (!popObject.isNull("id")) {
+                            failedRequestsCount = 0;
+
                             currentId = popObject.getString("id");
 
                             JSONObject payloadObject = popObject.getJSONObject("payload");
@@ -96,15 +116,24 @@ public class TextHordeRunnable implements Runnable {
 
                             String generation = bridge.getGenerator().startGeneration(payloadObject);
 
+                            JSONObject submitObject;
+                            if (generation == null) {
+                                submitObject = new JSONObject().put("id", currentId).put("generation", "faulted").put("state", "faulted").put("seed", -1);
+                            } else {
+                                submitObject = new JSONObject().put("id", currentId).put("generation", generation).put("state", "ok").put("seed", 0);
+                            }
 
-                            JSONObject submitObject = new JSONObject().put("id", currentId).put("generation", generation);
 
                             bd = BrowserClient.executePOSTRequest(new URL(clusterURL + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
 
                             JSONObject rewardObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
 
                             if (bd.getResponseCode() == 200) {
-                                bridge.getLogger().info("Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
+                                if (generation == null) {
+                                    bridge.getLogger().error("Aborting generation " + currentId + " due to exceeded 5 retry counts");
+                                } else {
+                                    bridge.getLogger().info("Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
+                                }
                             } else if (bd.getResponseCode() == 404) {
                                 bridge.getLogger().warn("Generation " + currentId + " is stale while we working on it!");
                             }
@@ -121,12 +150,16 @@ public class TextHordeRunnable implements Runnable {
                     } else if (bd.getResponseCode() == 400) {
                         bridge.getLogger().debug("Horde Cluster has a Validation Error! (" + popObject.getString("message") + ") Trying again in 5 seconds");
 
+                        failedRequestsCount++;
+
                         try {
                             TimeUnit.SECONDS.sleep(5);
                         } catch (InterruptedException ignored) {
                         }
                     } else if (bd.getResponseCode() == 401) {
                         bridge.getLogger().error("Invalid API Key! (" + popObject.getString("message") + ") Please check if it is valid! Closing in 10 seconds.");
+
+                        failedRequestsCount++;
 
                         try {
                             TimeUnit.SECONDS.sleep(10);
@@ -137,6 +170,8 @@ public class TextHordeRunnable implements Runnable {
                     } else if (bd.getResponseCode() == 403) {
                         bridge.getLogger().warn("Access is Denied! (" + popObject.getString("message") + ") Trying again in 10 seconds");
 
+                        failedRequestsCount++;
+
                         try {
                             TimeUnit.SECONDS.sleep(10);
                         } catch (InterruptedException ignored) {
@@ -146,12 +181,16 @@ public class TextHordeRunnable implements Runnable {
                     e.printStackTrace();
                     bridge.getLogger().error("Cannot populate worker! (" + e.getLocalizedMessage() + ") Trying again in 10 seconds!");
 
+                    failedRequestsCount++;
+
                     try {
                         TimeUnit.SECONDS.sleep(10);
                     } catch (InterruptedException ignored) {
                     }
                 } catch (JSONException e) {
                     bridge.getLogger().error("Horde Cluster is up but has invalid response! (" + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
+
+                    failedRequestsCount++;
 
                     try {
                         TimeUnit.SECONDS.sleep(5);
