@@ -94,8 +94,6 @@ public class TextHordeRunnable implements Runnable {
                     JSONObject popObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
                     if (bd.getResponseCode() == 200) {
                         if (!popObject.isNull("id")) {
-                            failedRequestsCount = 0;
-
                             currentId = popObject.getString("id");
 
                             JSONObject payloadObject = popObject.getJSONObject("payload");
@@ -130,8 +128,12 @@ public class TextHordeRunnable implements Runnable {
 
                             if (bd.getResponseCode() == 200) {
                                 if (generation == null) {
+                                    failedRequestsCount++;
+
                                     bridge.getLogger().error("Aborting generation " + currentId + " due to exceeded 5 retry counts");
                                 } else {
+                                    failedRequestsCount = 0;
+
                                     bridge.getLogger().info("Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
                                 }
                             } else if (bd.getResponseCode() == 404) {
