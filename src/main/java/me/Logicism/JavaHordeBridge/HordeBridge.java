@@ -155,7 +155,11 @@ public class HordeBridge {
             }
         }
 
-        kaiGenerator = new KAIGenerator(this, kaiURL);
+        if (config.getWorkerType().equals("interrogation")) {
+            interroGenerator = new InterrogationGenerator(this, kaiURL);
+        } else if (config.getWorkerType().equals("text")) {
+            kaiGenerator = new KAIGenerator(this, kaiURL);
+        }
     }
 
     public HordeLogger getLogger() {
