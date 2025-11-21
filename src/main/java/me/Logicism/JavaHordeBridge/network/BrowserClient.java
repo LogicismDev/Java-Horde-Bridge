@@ -106,6 +106,10 @@ public class BrowserClient {
     }
 
     public static BrowserData executePUTRequest(URL url, String data, Map<String, String> headers) throws IOException {
+        return executePUTRequest(url, data.getBytes(StandardCharsets.UTF_8), headers);
+    }
+
+    public static BrowserData executePUTRequest(URL url, byte[] data, Map<String, String> headers) throws IOException {
         if (url.getProtocol().equals("https")) {
             HttpsURLConnection c = (HttpsURLConnection) url.openConnection();
             c.setConnectTimeout(30000);
@@ -124,7 +128,7 @@ public class BrowserClient {
             c.setDoOutput(true);
 
             DataOutputStream dos = new DataOutputStream(c.getOutputStream());
-            dos.write(data.getBytes(StandardCharsets.UTF_8));
+            dos.write(data);
             dos.flush();
             dos.close();
 
@@ -150,7 +154,7 @@ public class BrowserClient {
             c.setDoOutput(true);
 
             DataOutputStream dos = new DataOutputStream(c.getOutputStream());
-            dos.write(data.getBytes(StandardCharsets.UTF_8));
+            dos.write(data);
             dos.flush();
             dos.close();
 

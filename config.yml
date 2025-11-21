@@ -1,16 +1,25 @@
 # The Horde Cluster URL to use to grab populated prompts from and to submit generations to.
 # This shouldn't be changed at all, unless if you run a private Horde Cluster and you know what you are doing.
-clusterURL: "https://stablehorde.net"
+clusterURL: "https://aihorde.net"
+
+# The Backup Horde Cluster URL to use if the main Horde Cluster is down
+# This shouldn't be changed at all, unless if you run a private Horde Cluster and you know what you are doing.
+backupClusterURL: "https://stablehorde.net"
 
 # An amazing, cool, awesome Horde Worker name you can specify yourself.
 workerName: ""
 
+# The worker type you must specify. If left blank, it'll auto default to text.
+# Acceptable options are, text or interrogation
+workerType: ""
+
 # The KoboldAI Client URL where it can reach your worker.
+# If you are running an interrogation client, you must use https://github.com/LogicismDev/HordeInterrogateAgent
 # The URL can be a cloudflared, nginx, or localtunnel URL as well that is hosted on other machines (e.g. Colab).
 kaiURL: ""
 
 # The API Key that is used to uniquely identify yourself on the Horde Cluster.
-# If you don't have an API Key, visit https://stablehorde.net/register to grab one.
+# If you don't have an API Key, visit https://aihorde.net/register to grab one.
 apiKey: ""
 
 # The usernames to prioritize generations first.
@@ -23,3 +32,10 @@ apiKey: ""
 # priorityUsernames: []
 # Please note that your username is already prioritized.
 priorityUsernames: []
+
+# The interrogation forms to enable for the worker
+interrogationForms:
+  - caption
+  - nsfw
+  - interrogation
+  - strip_background
