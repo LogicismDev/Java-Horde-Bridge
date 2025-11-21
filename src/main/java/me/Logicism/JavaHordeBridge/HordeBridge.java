@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import me.Logicism.JavaHordeBridge.console.HordeLogger;
 import me.Logicism.JavaHordeBridge.core.InterrogationGenerator;
+import me.Logicism.JavaHordeBridge.runnables.InterrogationHordeRunnable;
 import me.Logicism.JavaHordeBridge.runnables.TextHordeRunnable;
 import me.Logicism.JavaHordeBridge.core.KAIGenerator;
 import org.apache.commons.cli.*;
@@ -72,7 +73,11 @@ public class HordeBridge {
 
             INSTANCE.getLogger().info("Starting Java Horde Worker " + kaiName);
 
-            service.execute(new TextHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames));
+            if (workerType.equals("text")) {
+                service.execute(new TextHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames));
+            } else if (workerType.equals("interrogate")) {
+                service.execute(new InterrogationHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames));
+            }
         } catch (ParseException e) {
             System.out.println(e.getMessage());
             helper.printHelp("Usage", options);
