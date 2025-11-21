@@ -78,7 +78,7 @@ public class HordeBridge {
 
             if (workerType.equals("text")) {
                 service.execute(new TextHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames));
-            } else if (workerType.equals("interrogate")) {
+            } else if (workerType.equals("interrogation")) {
                 service.execute(new InterrogationHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames, forms));
             }
         } catch (ParseException e) {
@@ -148,6 +148,7 @@ public class HordeBridge {
                 clusterURL = config.getClusterURL();
                 backupClusterURL = config.getBackupClusterURL();
                 priorityUsernames = config.getPriorityUsernames().toArray(new String[0]);
+                forms = config.getInterrogationForms().toArray(new String[0]);
             } catch (IOException e) {
                 logger.error("Couldn't load configuration! " + e.getMessage() + " Stopping Java Horde Bridge");
                 System.exit(0);
