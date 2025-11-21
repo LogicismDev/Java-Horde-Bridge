@@ -105,8 +105,6 @@ public class InterrogationHordeRunnable implements Runnable {
                 }
                 interrogatePayload.put("forms", formsArray);
 
-                System.out.println(interrogatePayload);
-
                 Map<String, String> headers = new HashMap<>();
                 headers.put("apikey", apiKey);
                 headers.put("Content-Type", "application/json");
