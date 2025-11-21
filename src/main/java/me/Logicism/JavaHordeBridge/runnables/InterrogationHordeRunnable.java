@@ -105,6 +105,8 @@ public class InterrogationHordeRunnable implements Runnable {
                 }
                 interrogatePayload.put("forms", formsArray);
 
+                System.out.println(interrogatePayload);
+
                 Map<String, String> headers = new HashMap<>();
                 headers.put("apikey", apiKey);
                 headers.put("Content-Type", "application/json");
@@ -131,7 +133,7 @@ public class InterrogationHordeRunnable implements Runnable {
                     if (bd != null) {
                         JSONObject popObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
                         if (bd.getResponseCode() == 200) {
-                            if (!popObject.getJSONArray("forms").isEmpty()) {
+                            if (!popObject.isNull("forms")) {
                                 JSONArray forms = popObject.getJSONArray("forms");
 
                                 bridge.getLogger().info("Received a job with " + forms.length() + " forms to be processed");
