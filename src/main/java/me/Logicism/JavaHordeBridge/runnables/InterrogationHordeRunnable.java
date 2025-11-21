@@ -24,6 +24,7 @@ public class InterrogationHordeRunnable implements Runnable {
     private String clusterURL;
     private String backupClusterURL;
     private String[] priorityUsernames;
+    private String[] forms;
 
     private boolean isRunning = true;
     private int failedRequestsCount = 0;
@@ -32,7 +33,7 @@ public class InterrogationHordeRunnable implements Runnable {
     private Long lastValidated = null;
     private boolean online = false;
 
-    public InterrogationHordeRunnable(HordeBridge bridge, String kaiURL, String kaiName, String apiKey, String clusterURL, String backupClusterURL, String[] priorityUsernames) {
+    public InterrogationHordeRunnable(HordeBridge bridge, String kaiURL, String kaiName, String apiKey, String clusterURL, String backupClusterURL, String[] priorityUsernames, String[] forms) {
         this.bridge = bridge;
         this.kaiURL = kaiURL;
         this.kaiName = kaiName;
@@ -40,6 +41,7 @@ public class InterrogationHordeRunnable implements Runnable {
         this.backupClusterURL = backupClusterURL;
         this.clusterURL = clusterURL;
         this.priorityUsernames = priorityUsernames;
+        this.forms = forms;
     }
 
     @Override
@@ -87,7 +89,7 @@ public class InterrogationHordeRunnable implements Runnable {
 
             if (online) {
                 JSONObject interrogatePayload = new JSONObject();
-                interrogatePayload.put("name", kaiName).put("forms", bridge.getConfig().getInterrogationForms()).put("amount", 1).put("threads", 1).put("max_tiles", 64).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT);;
+                interrogatePayload.put("name", kaiName).put("amount", 1).put("threads", 1).put("max_tiles", 64).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT);;
                 if (priorityUsernames.length != 0) {
                     JSONArray priorityUsernameArrays = new JSONArray();
 
@@ -97,6 +99,11 @@ public class InterrogationHordeRunnable implements Runnable {
 
                     interrogatePayload.put("priority_usernames", priorityUsernameArrays);
                 }
+                JSONArray formsArray = new JSONArray();
+                for (String form : forms) {
+                    formsArray.put(form);
+                }
+                interrogatePayload.put("forms", formsArray);
 
                 Map<String, String> headers = new HashMap<>();
                 headers.put("apikey", apiKey);

@@ -36,6 +36,7 @@ public class HordeBridge {
     private static String clusterURL = "https://aihorde.net";
     private static String backupClusterURL = "https://stablehorde.net";
     private static String[] priorityUsernames = new String[0];
+    private static String[] forms = new String[0];
 
     private static ExecutorService service = Executors.newSingleThreadExecutor();
 
@@ -52,7 +53,8 @@ public class HordeBridge {
         Option kai_apikey = Option.builder("a").longOpt("kai_apikey").argName("kai_apikey").hasArg().desc("Set the Horde Worker API Key").numberOfArgs(1).build();
         Option cluster_url = Option.builder("u").longOpt("cluster_url").argName("cluster_url").hasArg().desc("Set the cluster url to grab prompts and to send generations to").numberOfArgs(1).build();
         Option backup_cluster_url = Option.builder("b").longOpt("backup_cluster_url").argName("backup_cluster_url").hasArg().desc("Set the backup cluster url if the main cluster is down").numberOfArgs(1).build();
-        Option priority_usernames = Option.builder("p").longOpt("priority_usernames").argName("priority_usernames").hasArg().valueSeparator(',').desc("The usernames to prioritize generations").build();
+        Option priority_usernames = Option.builder("p").longOpt("priority_usernames").argName("priority_usernames").hasArg().valueSeparator(',').desc("The usernames to prioritize generations").numberOfArgs(1).build();
+        Option oForms = Option.builder("f").longOpt("forms").argName("forms").hasArg().valueSeparator(',').desc("The interrogation forms to enable for the worker").numberOfArgs(1).build();
 
         options.addOption(interval);
         options.addOption(config);
@@ -63,6 +65,7 @@ public class HordeBridge {
         options.addOption(cluster_url);
         options.addOption(backup_cluster_url);
         options.addOption(priority_usernames);
+        options.addOption(oForms);
 
         HelpFormatter helper = new HelpFormatter();
         try {
@@ -76,7 +79,7 @@ public class HordeBridge {
             if (workerType.equals("text")) {
                 service.execute(new TextHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames));
             } else if (workerType.equals("interrogate")) {
-                service.execute(new InterrogationHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames));
+                service.execute(new InterrogationHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames, forms));
             }
         } catch (ParseException e) {
             System.out.println(e.getMessage());
@@ -125,6 +128,9 @@ public class HordeBridge {
             if (cmd.hasOption("priority_usernames")) {
                 priorityUsernames = cmd.getOptionValues("priority_usernames");
             }
+            if (cmd.hasOption("forms")) {
+                forms = cmd.getOptionValues("forms");
+            }
         } else {
             ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
 
@@ -161,9 +167,5 @@ public class HordeBridge {
 
     public InterrogationGenerator getInterroGenerator() {
         return interroGenerator;
-    }
-
-    public HordeConfig getConfig() {
-        return config;
     }
 }
