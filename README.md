@@ -6,7 +6,7 @@ A Java based implementation for StableHorde's Generations UI. Aimed to be more f
 - Text Generation Scribe Worker
   - KoboldAI Client Verifier
   - Generation Popper
-- Interrogation Alchemist Worker
+- [Interrogation Alchemist Worker](https://github.com/LogicismDev/HordeInterrogateAgent)
   - Image Captioning
   - NSFW Checking
   - Image Interrogation
