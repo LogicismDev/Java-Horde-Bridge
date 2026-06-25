@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Configuration status="INFO" xmlns="http://logging.apache.org/log4j/2.0/config">
+<Configuration status="ERROR">
     <Appenders>
         <Console name="STDOUT" target="SYSTEM_OUT">
             <PatternLayout pattern=" %highlight{%4p}{FATAL=red, ERROR=red, WARN=yellow, INFO=white, DEBUG=cyan, TRACE=blue} %style{|}{blue} %style{%d{HH:mm:ss}}{yellow} %style{|}{blue} %highlight{%m%n%throwable{0}}{FATAL=red, ERROR=red, WARN=yellow, INFO=white, DEBUG=cyan, TRACE=blue}" disableAnsi="false"/>
