@@ -7,12 +7,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 public class TextHordeRunnable implements Runnable {
 
@@ -64,7 +63,7 @@ public class TextHordeRunnable implements Runnable {
                     lastValidated = System.currentTimeMillis();
 
                     failedRequestsCount = 0;
-                } catch (IOException e) {
+                } catch (IOException | URISyntaxException | InterruptedException e) {
                     failedRequestsCount++;
 
                     bridge.getLogger().error("Cannot connect to KoboldAI Client! ("
@@ -101,10 +100,10 @@ public class TextHordeRunnable implements Runnable {
                     }
 
                     if (useBackupCluster && backupClusterGenCount < 10) {
-                        bd = BrowserClient.executePOSTRequest(new URL(backupClusterURL + "/api/v2/generate/text/pop"), clientData.toString(), headers);
+                        bd = BrowserClient.executePOSTRequestString(new URL(backupClusterURL + "/api/v2/generate/text/pop"), clientData.toString(), headers);
                     } else {
                         try {
-                            bd = BrowserClient.executePOSTRequest(new URL(clusterURL + "/api/v2/generate/text/pop"), clientData.toString(), headers);
+                            bd = BrowserClient.executePOSTRequestString(new URL(clusterURL + "/api/v2/generate/text/pop"), clientData.toString(), headers);
                         } catch (IOException | JSONException e) {
                             bridge.getLogger().error("Main Horde Cluster is down! (" + e.getLocalizedMessage() + ") Swapping to Backup Horde Cluster for the next 10 generations!");
                             useBackupCluster = true;
@@ -112,7 +111,7 @@ public class TextHordeRunnable implements Runnable {
                     }
 
                     if (bd != null) {
-                        JSONObject popObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
+                        JSONObject popObject = new JSONObject(bd.getResponseString());
                         if (bd.getResponseCode() == 200) {
                             if (!popObject.isNull("id")) {
                                 currentId = popObject.getString("id");
@@ -143,7 +142,7 @@ public class TextHordeRunnable implements Runnable {
                                 }
 
 
-                                bd = BrowserClient.executePOSTRequest(new URL(clusterURL + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
+                                bd = BrowserClient.executePOSTRequestString(new URL(clusterURL + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
 
                                 if (bd.getResponseCode() == 200) {
                                     if (generation == null) {
@@ -151,7 +150,7 @@ public class TextHordeRunnable implements Runnable {
 
                                         bridge.getLogger().error("Aborting generation " + currentId + " due to exceeded 5 retry counts");
                                     } else {
-                                        JSONObject rewardObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
+                                        JSONObject rewardObject = new JSONObject(bd.getResponseString());
 
                                         failedRequestsCount = 0;
                                         if (useBackupCluster) {
@@ -204,7 +203,7 @@ public class TextHordeRunnable implements Runnable {
                             }
                         }
                     }
-                } catch (IOException e) {
+                } catch (IOException | InterruptedException | URISyntaxException e) {
                     e.printStackTrace();
                     bridge.getLogger().error("Cannot populate worker! (" + e.getLocalizedMessage() + ") Trying again in 10 seconds!");
 

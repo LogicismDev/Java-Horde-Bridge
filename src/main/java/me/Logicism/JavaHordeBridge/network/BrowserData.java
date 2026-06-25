@@ -11,13 +11,28 @@ public class BrowserData {
     private int resCode;
     private int resLength;
     private InputStream response;
+    private String resString;
 
-    public BrowserData(String url, Map<String, List<String>> headers, int resCode, int resLength, InputStream response) {
+    public BrowserData(String url, Map<String, List<String>> headers, int resCode, InputStream response, int resLength) {
         this.url = url;
         this.headers = headers;
         this.resCode = resCode;
         this.resLength = resLength;
         this.response = response;
+    }
+
+    public BrowserData(String url, Map<String, List<String>> headers, int resCode, String reponseString, int resLength) {
+        this.url = url;
+        this.headers = headers;
+        this.resCode = resCode;
+        this.resString = reponseString;
+        this.resLength = resLength;
+    }
+
+    public BrowserData(String url, Map<String, List<String>> headers, int resCode) {
+        this.url = url;
+        this.headers = headers;
+        this.resCode = resCode;
     }
 
     public String getURL() {
@@ -38,5 +53,9 @@ public class BrowserData {
 
     public InputStream getResponse() {
         return response;
+    }
+
+    public String getResponseString() {
+        return resString;
     }
 }

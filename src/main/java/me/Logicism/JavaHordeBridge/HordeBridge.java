@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 
 public class HordeBridge {
 
-    public static int BRIDGE_VERSION = 3;
+    public static int BRIDGE_VERSION = 4;
     public static String BRIDGE_AGENT = "Java Horde Bridge:" + BRIDGE_VERSION + ":https://github.com/LogicismDev/Java-Horde-Bridge";
 
     public static HordeBridge INSTANCE;
