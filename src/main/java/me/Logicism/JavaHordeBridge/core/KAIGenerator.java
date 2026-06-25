@@ -32,7 +32,7 @@ public class KAIGenerator {
         headers.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
         while (retryCount < 5) {
             try {
-                BrowserData generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/api/latest/generate"), payload.toString(), headers);
+                BrowserData generationData = BrowserClient.executePOSTRequestString(new URL(kaiURL + "/api/latest/generate"), payload.toString(), headers);
 
                 if (generationData.getResponseCode() == 200) {
                     JSONObject generationObject = new JSONObject(generationData.getResponseString());
