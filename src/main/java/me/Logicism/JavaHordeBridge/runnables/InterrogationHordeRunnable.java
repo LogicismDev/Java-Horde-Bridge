@@ -9,6 +9,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.Base64;
 import java.util.HashMap;
@@ -74,7 +75,7 @@ public class InterrogationHordeRunnable implements Runnable {
                         TimeUnit.SECONDS.sleep(10);
                     } catch (InterruptedException ignored) {
                     }
-                } catch (JSONException e) {
+                } catch (JSONException | URISyntaxException | InterruptedException e) {
                     failedRequestsCount++;
 
                     bridge.getLogger().error("Interrogation Agent is up but has invalid response! ("
@@ -118,10 +119,10 @@ public class InterrogationHordeRunnable implements Runnable {
                     }
 
                     if (useBackupCluster && backupClusterGenCount < 10) {
-                        bd = BrowserClient.executePOSTRequest(new URL(backupClusterURL + "/api/v2/interrogate/pop"), interrogatePayload.toString(), headers);
+                        bd = BrowserClient.executePOSTRequestString(new URL(backupClusterURL + "/api/v2/interrogate/pop"), interrogatePayload.toString(), headers);
                     } else {
                         try {
-                            bd = BrowserClient.executePOSTRequest(new URL(clusterURL + "/api/v2/interrogate/pop"), interrogatePayload.toString(), headers);
+                            bd = BrowserClient.executePOSTRequestString(new URL(clusterURL + "/api/v2/interrogate/pop"), interrogatePayload.toString(), headers);
                         } catch (IOException | JSONException e) {
                             bridge.getLogger().error("Main Horde Cluster is down! (" + e.getLocalizedMessage() + ") Swapping to Backup Horde Cluster for the next 10 generations!");
                             useBackupCluster = true;
@@ -129,7 +130,7 @@ public class InterrogationHordeRunnable implements Runnable {
                     }
 
                     if (bd != null) {
-                        JSONObject popObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
+                        JSONObject popObject = new JSONObject(bd.getResponseString());
                         if (bd.getResponseCode() == 200) {
                             if (!popObject.isNull("forms")) {
                                 JSONArray forms = popObject.getJSONArray("forms");
@@ -165,7 +166,7 @@ public class InterrogationHordeRunnable implements Runnable {
                                         }
                                     }
 
-                                    bd = BrowserClient.executePOSTRequest(new URL(clusterURL + "/api/v2/interrogate/submit"), submitObject.toString(), headers);
+                                    bd = BrowserClient.executePOSTRequestString(new URL(clusterURL + "/api/v2/interrogate/submit"), submitObject.toString(), headers);
 
                                     if (bd.getResponseCode() == 200) {
                                         if (generationObject == null) {
@@ -173,7 +174,7 @@ public class InterrogationHordeRunnable implements Runnable {
 
                                             bridge.getLogger().error("Aborting generation " + currentId + " due to exceeded 5 retry counts");
                                         } else {
-                                            JSONObject rewardObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
+                                            JSONObject rewardObject = new JSONObject(bd.getResponseString());
 
                                             failedRequestsCount = 0;
                                             if (useBackupCluster) {
@@ -237,7 +238,7 @@ public class InterrogationHordeRunnable implements Runnable {
                         TimeUnit.SECONDS.sleep(10);
                     } catch (InterruptedException ignored) {
                     }
-                } catch (JSONException e) {
+                } catch (JSONException | InterruptedException | URISyntaxException e) {
                     bridge.getLogger().error("Horde Cluster is up but has invalid response! (" + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
                     failedRequestsCount++;

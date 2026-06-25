@@ -3,11 +3,11 @@ package me.Logicism.JavaHordeBridge.core;
 import me.Logicism.JavaHordeBridge.HordeBridge;
 import me.Logicism.JavaHordeBridge.network.BrowserClient;
 import me.Logicism.JavaHordeBridge.network.BrowserData;
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
@@ -31,10 +31,10 @@ public class InterrogationGenerator {
         headers.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
         while (retryCount < 5) {
             try {
-                BrowserData generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/caption"), new JSONObject().put("url", imageURL).toString(), headers);
+                BrowserData generationData = BrowserClient.executePOSTRequestString(new URL(kaiURL + "/caption"), new JSONObject().put("url", imageURL).toString(), headers);
 
                 if (generationData.getResponseCode() == 200) {
-                    generationObject = new JSONObject(BrowserClient.requestToString(generationData.getResponse()));
+                    generationObject = new JSONObject(generationData.getResponseString());
 
                     break;
                 } else if (generationData.getResponseCode() == 500) {
@@ -59,7 +59,7 @@ public class InterrogationGenerator {
                     TimeUnit.SECONDS.sleep(5);
                 } catch (InterruptedException ignored) {
                 }
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException | URISyntaxException e) {
                 bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                 try {
@@ -84,10 +84,10 @@ public class InterrogationGenerator {
         headers.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
         while (retryCount < 5) {
             try {
-                BrowserData generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/safetycheck"), new JSONObject().put("url", imageURL).toString(), headers);
+                BrowserData generationData = BrowserClient.executePOSTRequestString(new URL(kaiURL + "/safetycheck"), new JSONObject().put("url", imageURL).toString(), headers);
 
                 if (generationData.getResponseCode() == 200) {
-                    generationObject = new JSONObject(BrowserClient.requestToString(generationData.getResponse()));
+                    generationObject = new JSONObject(generationData.getResponseString());
 
                     break;
                 } else if (generationData.getResponseCode() == 500) {
@@ -112,7 +112,7 @@ public class InterrogationGenerator {
                     TimeUnit.SECONDS.sleep(5);
                 } catch (InterruptedException ignored) {
                 }
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException | URISyntaxException e) {
                 bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                 try {
@@ -140,7 +140,7 @@ public class InterrogationGenerator {
                 BrowserData generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/interrogate"), new JSONObject().put("url", imageURL).toString(), headers);
 
                 if (generationData.getResponseCode() == 200) {
-                    generationObject = new JSONObject(BrowserClient.requestToString(generationData.getResponse()));
+                    generationObject = new JSONObject(generationData.getResponseString());
 
                     break;
                 } else if (generationData.getResponseCode() == 500) {
@@ -165,7 +165,7 @@ public class InterrogationGenerator {
                     TimeUnit.SECONDS.sleep(5);
                 } catch (InterruptedException ignored) {
                 }
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException | URISyntaxException e) {
                 bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                 try {
@@ -193,7 +193,7 @@ public class InterrogationGenerator {
                 BrowserData generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/stripbackground"), new JSONObject().put("url", imageURL).toString(), headers);
 
                 if (generationData.getResponseCode() == 200) {
-                    generationObject = new JSONObject(BrowserClient.requestToString(generationData.getResponse()));
+                    generationObject = new JSONObject(generationData.getResponseString());
 
                     break;
                 } else if (generationData.getResponseCode() == 500) {
@@ -218,7 +218,7 @@ public class InterrogationGenerator {
                     TimeUnit.SECONDS.sleep(5);
                 } catch (InterruptedException ignored) {
                 }
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException | URISyntaxException e) {
                 bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                 try {
@@ -235,8 +235,8 @@ public class InterrogationGenerator {
         return generationObject;
     }
 
-    public boolean validateClient() throws IOException {
-        BrowserData bd = BrowserClient.executeGETRequest(new URL(kaiURL + "/health"), null);
+    public boolean validateClient() throws IOException, URISyntaxException, InterruptedException {
+        BrowserData bd = BrowserClient.executeGETRequestDiscard(new URL(kaiURL + "/health"), new HashMap<>());
 
         return bd.getResponseCode() == 200;
     }

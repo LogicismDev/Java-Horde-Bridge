@@ -8,6 +8,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
@@ -34,10 +35,9 @@ public class KAIGenerator {
                 BrowserData generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/api/latest/generate"), payload.toString(), headers);
 
                 if (generationData.getResponseCode() == 200) {
-                    JSONObject generationObject = new JSONObject(BrowserClient.requestToString(generationData.getResponse()));
+                    JSONObject generationObject = new JSONObject(generationData.getResponseString());
 
                     generation = generationObject.getJSONArray("results").getJSONObject(0).getString("text");
-
                     break;
                 } else if (generationData.getResponseCode() == 422) {
                     generation = "payload validation error";
@@ -65,7 +65,7 @@ public class KAIGenerator {
                     TimeUnit.SECONDS.sleep(5);
                 } catch (InterruptedException ignored) {
                 }
-            } catch (IOException e) {
+            } catch (IOException | InterruptedException | URISyntaxException e) {
                 bridge.getLogger().debug("Client is unavailable (attempt " + retryCount++ + "), retrying generation in 5 seconds...");
 
                 try {
@@ -78,17 +78,17 @@ public class KAIGenerator {
         return generation;
     }
 
-    public JSONObject validateClient(String kaiName, String[] priorityUsernames) throws IOException {
+    public JSONObject validateClient(String kaiName, String[] priorityUsernames) throws IOException, URISyntaxException, InterruptedException {
         JSONObject clientData = null;
         while (clientData == null) {
-            BrowserData bd = BrowserClient.executeGETRequest(new URL(kaiURL + "/api/latest/model/"), null);
-            JSONObject modelObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
+            BrowserData bd = BrowserClient.executeGETRequestString(new URL(kaiURL + "/api/latest/model/"), new HashMap<>());
+            JSONObject modelObject = new JSONObject(bd.getResponseString());
 
-            bd = BrowserClient.executeGETRequest(new URL(kaiURL + "/api/latest/config/max_context_length/"), null);
-            JSONObject maxContextLengthObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
+            bd = BrowserClient.executeGETRequestString(new URL(kaiURL + "/api/latest/config/max_context_length/"), new HashMap<>());
+            JSONObject maxContextLengthObject = new JSONObject(bd.getResponseString());
 
-            bd = BrowserClient.executeGETRequest(new URL(kaiURL + "/api/latest/config/max_length/"), null);
-            JSONObject maxLengthObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
+            bd = BrowserClient.executeGETRequestString(new URL(kaiURL + "/api/latest/config/max_length/"), new HashMap<>());
+            JSONObject maxLengthObject = new JSONObject(bd.getResponseString());
 
             String model = modelObject.getString("result");
             if (!model.contains("/")) {
@@ -107,8 +107,8 @@ public class KAIGenerator {
                 clientData.put("priority_usernames", priorityUsernameArrays);
             }
 
-            bd = BrowserClient.executeGETRequest(new URL(kaiURL + "/api/latest/config/soft_prompts_list/"), null);
-            JSONObject softPromptsListObject = new JSONObject(BrowserClient.requestToString(bd.getResponse()));
+            bd = BrowserClient.executeGETRequestString(new URL(kaiURL + "/api/latest/config/soft_prompts_list/"), new HashMap<>());
+            JSONObject softPromptsListObject = new JSONObject(bd.getResponseString());
 
             clientData.put("softprompts", softPromptsListObject.has(modelObject.getString("result")) ? softPromptsListObject.getJSONArray(modelObject.getString("result")) : new JSONArray());
 
