@@ -20,6 +20,22 @@ public class HordeConfig {
 
     private List<String> interrogationForms;
 
+    private boolean enablePromptJobs;
+
+    private boolean enableChatCompletions;
+
+    private boolean disableKoboldClientVerifier;
+
+    private String model;
+
+    private int maxTokens;
+
+    private int maxTokenLength;
+
+    private List<String> chatFeatures;
+
+    private List<String> imageTransports;
+
     public String getWorkerName() {
         return workerName;
     }
@@ -50,5 +66,37 @@ public class HordeConfig {
 
     public List<String> getInterrogationForms() {
         return interrogationForms;
+    }
+
+    public boolean isEnablePromptJobs() {
+        return enablePromptJobs;
+    }
+
+    public boolean isEnableChatCompletions() {
+        return enableChatCompletions;
+    }
+
+    public boolean isDisableKoboldClientVerifier() {
+        return disableKoboldClientVerifier;
+    }
+
+    public String getModel() {
+        return model;
+    }
+
+    public int getMaxTokens() {
+        return maxTokens;
+    }
+
+    public int getMaxTokenLength() {
+        return maxTokenLength;
+    }
+
+    public List<String> getChatFeatures() {
+        return chatFeatures;
+    }
+
+    public List<String> getImageTransports() {
+        return imageTransports;
     }
 }

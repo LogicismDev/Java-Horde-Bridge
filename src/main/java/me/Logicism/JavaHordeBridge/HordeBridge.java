@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 
 public class HordeBridge {
 
-    public static int BRIDGE_VERSION = 4;
+    public static int BRIDGE_VERSION = 5;
     public static String BRIDGE_AGENT = "Java Horde Bridge:" + BRIDGE_VERSION + ":https://github.com/LogicismDev/Java-Horde-Bridge";
 
     public static HordeBridge INSTANCE;
@@ -26,7 +26,7 @@ public class HordeBridge {
 
     private KAIGenerator kaiGenerator;
     private InterrogationGenerator interroGenerator;
-    private HordeLogger logger;
+    private final HordeLogger logger;
     private HordeConfig config;
 
     private static String workerType = "text";
@@ -37,8 +37,16 @@ public class HordeBridge {
     private static String backupClusterURL = "https://stablehorde.net";
     private static String[] priorityUsernames = new String[0];
     private static String[] forms = new String[0];
+    private static boolean enablePromptJobs = false;
+    private static boolean enableChatCompletions = false;
+    private static boolean disableKoboldClientVerifier = false;
+    private static String model = "";
+    private static int maxTokens = 512;
+    private static int maxTokenLength = 2048;
+    private static String[] chatFeatures = new String[0];
+    private static String[] imageTransports = new String[0];
 
-    private static ExecutorService service = Executors.newSingleThreadExecutor();
+    private static final ExecutorService service = Executors.newSingleThreadExecutor();
 
     public static void main(String[] args) {
         AnsiConsole.systemInstall();
@@ -55,6 +63,14 @@ public class HordeBridge {
         Option backup_cluster_url = Option.builder("b").longOpt("backup_cluster_url").argName("backup_cluster_url").hasArg().desc("Set the backup cluster url if the main cluster is down").numberOfArgs(1).build();
         Option priority_usernames = Option.builder("p").longOpt("priority_usernames").argName("priority_usernames").hasArg().valueSeparator(',').desc("The usernames to prioritize generations").numberOfArgs(1).build();
         Option oForms = Option.builder("f").longOpt("forms").argName("forms").hasArg().valueSeparator(',').desc("The interrogation forms to enable for the worker").numberOfArgs(1).build();
+        Option enable_prompt_jobs = Option.builder("e").longOpt("enable_prompt_jobs").argName("enable_prompt_jobs").hasArg().valueSeparator(',').desc("Enable Prompt Jobs (true/false)").numberOfArgs(1).build();
+        Option enable_chat_completions = Option.builder("E").longOpt("enable_chat_completions").argName("enable_chat_completions").hasArg().valueSeparator(',').desc("Enable Chat Completions (true/false)").numberOfArgs(1).build();
+        Option disable_kobold_client_verifier = Option.builder("d").longOpt("disable_kobold_client_verifier").argName("disable_kobold_client_verifier").hasArg().valueSeparator(',').desc("Disable Kobold Client Verifier, only use if you're not using a KoboldAI supported endpoint program. Disables OpenAI model fetching if specified. (true/false)").numberOfArgs(1).build();
+        Option oModel = Option.builder("o").longOpt("model").argName("model").hasArg().valueSeparator(',').desc("Set the model optionally if Kobold Client Verifier is disabled").numberOfArgs(1).build();
+        Option max_tokens = Option.builder("m").longOpt("max_tokens").argName("max_tokens").hasArg().valueSeparator(',').desc("Set the max tokens if Kobold Client Verifier is disabled").numberOfArgs(1).build();
+        Option max_token_length = Option.builder("m").longOpt("max_token_length").argName("max_token_length").hasArg().valueSeparator(',').desc("Set the max token length if Kobold Client Verifier is disabled").numberOfArgs(1).build();
+        Option chat_features = Option.builder("C").longOpt("chat_features").argName("chat_features").hasArg().valueSeparator(',').desc("The chat features to enable for the text worker").numberOfArgs(1).build();
+        Option image_transports = Option.builder("I").longOpt("image_transports").argName("image_transports").hasArg().valueSeparator(',').desc("The image transports to enable for the text worker (base64, url)").numberOfArgs(1).build();
 
         options.addOption(interval);
         options.addOption(config);
@@ -66,6 +82,14 @@ public class HordeBridge {
         options.addOption(backup_cluster_url);
         options.addOption(priority_usernames);
         options.addOption(oForms);
+        options.addOption(enable_prompt_jobs);
+        options.addOption(enable_chat_completions);
+        options.addOption(disable_kobold_client_verifier);
+        options.addOption(oModel);
+        options.addOption(max_tokens);
+        options.addOption(max_token_length);
+        options.addOption(chat_features);
+        options.addOption(image_transports);
 
         HelpFormatter helper = new HelpFormatter();
         try {
@@ -77,7 +101,7 @@ public class HordeBridge {
             INSTANCE.getLogger().info("Starting Java Horde Worker " + kaiName);
 
             if (workerType.equals("text")) {
-                service.execute(new TextHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames));
+                service.execute(new TextHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames, enableChatCompletions, enablePromptJobs, disableKoboldClientVerifier, model, maxTokens, maxTokenLength, chatFeatures, imageTransports));
             } else if (workerType.equals("interrogation")) {
                 service.execute(new InterrogationHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames, forms));
             }
@@ -131,6 +155,30 @@ public class HordeBridge {
             if (cmd.hasOption("forms")) {
                 forms = cmd.getOptionValues("forms");
             }
+            if (cmd.hasOption("enable_prompt_jobs")) {
+                enablePromptJobs = Boolean.parseBoolean(cmd.getOptionValue("enable_prompt_jobs"));
+            }
+            if (cmd.hasOption("enable_chat_completions")) {
+                enableChatCompletions = Boolean.parseBoolean(cmd.getOptionValue("enable_chat_completions"));
+            }
+            if (cmd.hasOption("disable_kobold_client_verifier")) {
+                disableKoboldClientVerifier = Boolean.parseBoolean(cmd.getOptionValue("disable_kobold_client_verifier"));
+            }
+            if (cmd.hasOption("model")) {
+                model = cmd.getOptionValue("model");
+            }
+            if (cmd.hasOption("max_tokens")) {
+                maxTokens = Integer.parseInt(cmd.getOptionValue("max_tokens"));
+            }
+            if (cmd.hasOption("max_token_length")) {
+                maxTokenLength = Integer.parseInt(cmd.getOptionValue("max_token_length"));
+            }
+            if (cmd.hasOption("chat_features")) {
+                chatFeatures = cmd.getOptionValues("chat_features");
+            }
+            if (cmd.hasOption("image_transports")) {
+                imageTransports = cmd.getOptionValues("image_transports");
+            }
         } else {
             ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
 
@@ -149,15 +197,27 @@ public class HordeBridge {
                 backupClusterURL = config.getBackupClusterURL();
                 priorityUsernames = config.getPriorityUsernames().toArray(new String[0]);
                 forms = config.getInterrogationForms().toArray(new String[0]);
+                enablePromptJobs = config.isEnablePromptJobs();
+                enableChatCompletions = config.isEnableChatCompletions();
+                disableKoboldClientVerifier = config.isDisableKoboldClientVerifier();
+                model = config.getModel();
+                maxTokens = config.getMaxTokens();
+                maxTokenLength = config.getMaxTokenLength();
+                chatFeatures = config.getChatFeatures().toArray(new String[0]);
+                imageTransports = config.getImageTransports().toArray(new String[0]);
             } catch (IOException e) {
                 logger.error("Couldn't load configuration! " + e.getMessage() + " Stopping Java Horde Bridge");
                 System.exit(0);
             }
         }
 
-        if (config.getWorkerType().equals("interrogation")) {
+        if (workerType.equals("interrogation")) {
             interroGenerator = new InterrogationGenerator(this, kaiURL);
-        } else if (config.getWorkerType().equals("text")) {
+        } else if (workerType.equals("text")) {
+            if (!enablePromptJobs && !enableChatCompletions) {
+                logger.error("Prompt Jobs should be enabled if Chat Completions is false, or Chat Completions should be enabled, or both!");
+                return;
+            }
             kaiGenerator = new KAIGenerator(this, kaiURL);
         }
     }

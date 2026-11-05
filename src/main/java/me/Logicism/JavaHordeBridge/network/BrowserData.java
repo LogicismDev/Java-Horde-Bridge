@@ -1,8 +1,12 @@
 package me.Logicism.JavaHordeBridge.network;
 
+import org.json.JSONObject;
+
 import java.io.InputStream;
+import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 public class BrowserData {
 
@@ -12,6 +16,7 @@ public class BrowserData {
     private int resLength;
     private InputStream response;
     private String resString;
+    private CompletableFuture<HttpResponse<JSONObject>> completableResponse;
 
     public BrowserData(String url, Map<String, List<String>> headers, int resCode, InputStream response, int resLength) {
         this.url = url;
@@ -57,5 +62,9 @@ public class BrowserData {
 
     public String getResponseString() {
         return resString;
+    }
+
+    public CompletableFuture<HttpResponse<JSONObject>> getCompletableResponse() {
+        return completableResponse;
     }
 }

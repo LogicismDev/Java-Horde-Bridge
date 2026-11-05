@@ -1,16 +1,20 @@
 package me.Logicism.JavaHordeBridge.network;
 
-import javax.net.ssl.HttpsURLConnection;
+import org.json.JSONObject;
+
 import java.io.*;
-import java.net.HttpURLConnection;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class BrowserClient {
 

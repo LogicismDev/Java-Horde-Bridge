@@ -39,3 +39,48 @@ interrogationForms:
   - nsfw
   - interrogation
   - strip_background
+
+# Enable Prompt Jobs for the text worker
+# This should be true if enableChatCompletions is false!
+# This will be automatically false if disableKoboldClientVerifier is true.
+enablePromptJobs: true
+
+# Enable Chat Completions for the text worker
+# Please note that I am not held responsible for any actions that may be held against your horde account (such as suspensions or bans, hosting an illegal or disallowed model loaded).
+enableChatCompletions: false
+
+# Disable Kobold Client Verifiers and instead use OpenAI Compatible Endpoints to verify client.
+# Set this to true if you're not using koboldcpp or any KoboldAI compatible endpoints on your AI program.
+# This will be automatically disable prompt jobs if set to true.
+disableKoboldClientVerifier: false
+
+# If disableKoboldClientVerifier is set to true, you can specify the model below if you wish.
+# This disables fetching the model name from the AI Program.
+model: ""
+
+# If disableKoboldClientVerifier is set to true, set the maxTokens and maxTokenLength below to the amount specified in your AI Program.
+maxTokens: 512
+maxTokenLength: 2048
+
+# The chat features to enable for the text worker
+# Specify which ones are supported by your AI program
+chatFeatures:
+  - seed
+  - presence_penalty
+  - frequency_penalty
+  - vision
+  - tools
+  - json_object
+  - json_schema
+  - tools_with_response_format
+  - reasoning_effort
+  - tool_choice_enforced
+  - single_tool_call_enforced
+  - structured_output_enforced
+  - prompt_overflow_refused
+
+# The image transports to enable if vision is enabled in chatFeatures
+# Specify which ones are supported by your AI program.
+imageTransports:
+  - url
+  - base64
