@@ -247,7 +247,7 @@ public class KAIGenerator {
         return null;
     }
 
-    public JSONObject validateClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, boolean enablePromptJobs, String[] chatFeatures, String[] imageTransports) throws IOException, URISyntaxException, InterruptedException {
+    public JSONObject validateClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, boolean enablePromptJobs, String[] chatFeatures, String[] imageTransports, int threads) throws IOException, URISyntaxException, InterruptedException {
         JSONObject clientData = null;
         while (clientData == null) {
             BrowserData bd = BrowserClient.executeGETRequestString(new URL(kaiURL + "/api/latest/model/"), new HashMap<>());
@@ -264,7 +264,7 @@ public class KAIGenerator {
                 model = model.replace("_", "/");
             }
 
-            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxLengthObject.getInt("value")).put("max_context_length", maxContextLengthObject.getInt("value")).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", enablePromptJobs).put("model_id", model).put("chat_jobs", enableChatFeatures);
+            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxLengthObject.getInt("value")).put("max_context_length", maxContextLengthObject.getInt("value")).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", enablePromptJobs).put("model_id", model).put("chat_jobs", enableChatFeatures).put("threads", threads);
 
             if (priorityUsernames.length != 0) {
                 JSONArray priorityUsernameArrays = new JSONArray();
@@ -302,7 +302,7 @@ public class KAIGenerator {
         return clientData;
     }
 
-    public JSONObject validateOpenAIClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports) throws IOException, URISyntaxException, InterruptedException {
+    public JSONObject validateOpenAIClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports, int threads) throws IOException, URISyntaxException, InterruptedException {
         JSONObject clientData = null;
         while (clientData == null) {
             if (model.isEmpty()) {
@@ -311,7 +311,7 @@ public class KAIGenerator {
                 model = modelObject.getJSONArray("data").getJSONObject(0).getString("id");
             }
 
-            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxTokens).put("max_context_length", maxTokenLength).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", false).put("model_id", model).put("chat_jobs", enableChatFeatures);
+            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxTokens).put("max_context_length", maxTokenLength).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", false).put("model_id", model).put("chat_jobs", enableChatFeatures).put("threads", threads);
 
             if (priorityUsernames.length != 0) {
                 JSONArray priorityUsernameArrays = new JSONArray();
