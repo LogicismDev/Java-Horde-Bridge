@@ -9,17 +9,15 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 public class TextHordeRunnable implements Runnable {
 
     private final HordeBridge bridge;
+    private final int threadID;
     private final String kaiURL;
     private final String kaiName;
     private final String apiKey;
@@ -34,6 +32,7 @@ public class TextHordeRunnable implements Runnable {
     private final int maxTokenLength;
     private final String[] chatFeatures;
     private final String[] imageTransports;
+    private final int threads;
 
     private boolean isRunning = true;
     private int failedRequestsCount = 0;
@@ -44,8 +43,9 @@ public class TextHordeRunnable implements Runnable {
     private String currentId = "";
     private String softprompt = "";
 
-    public TextHordeRunnable(HordeBridge bridge, String kaiURL, String kaiName, String apiKey, String clusterURL, String backupClusterURL, String[] priorityUsernames, boolean enableChatCompletions, boolean enablePromptJobs, boolean disableKoboldClientVerifier, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports) {
+    public TextHordeRunnable(HordeBridge bridge, int threadID, String kaiURL, String kaiName, String apiKey, String clusterURL, String backupClusterURL, String[] priorityUsernames, boolean enableChatCompletions, boolean enablePromptJobs, boolean disableKoboldClientVerifier, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports, int threads) {
         this.bridge = bridge;
+        this.threadID = threadID;
         this.kaiURL = kaiURL;
         this.kaiName = kaiName;
         this.apiKey = apiKey;
@@ -60,6 +60,7 @@ public class TextHordeRunnable implements Runnable {
         this.maxTokenLength = maxTokenLength;
         this.chatFeatures = chatFeatures;
         this.imageTransports = imageTransports;
+        this.threads = threads;
     }
 
     @Override
@@ -77,17 +78,17 @@ public class TextHordeRunnable implements Runnable {
             }
 
             if (disableKoboldClientVerifier) {
-                if (clientData == null && lastValidated == null || System.currentTimeMillis() - lastValidated >= 30000) {
+                if (clientData == null && lastValidated == null ||System.currentTimeMillis() - lastValidated >= 30000) {
                     try {
-                        bridge.getLogger().debug("Retrieving OpenAI Worker Settings...");
-                        clientData = bridge.getGenerator().validateOpenAIClient(kaiName, priorityUsernames, enableChatCompletions, model, maxTokens, maxTokenLength, chatFeatures, imageTransports);
+                        bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "Retrieving OpenAI Worker Settings...");
+                        clientData = bridge.getGenerator().validateOpenAIClient(kaiName, priorityUsernames, enableChatCompletions, model, maxTokens, maxTokenLength, chatFeatures, imageTransports, threads);
                         lastValidated = System.currentTimeMillis();
 
                         failedRequestsCount = 0;
                     } catch (IOException | URISyntaxException | InterruptedException e) {
                         failedRequestsCount++;
 
-                        bridge.getLogger().error("Cannot connect to OpenAI Client! ("
+                        bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Cannot connect to OpenAI Client! ("
                                 + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
                         try {
@@ -97,7 +98,7 @@ public class TextHordeRunnable implements Runnable {
                     } catch (JSONException e) {
                         failedRequestsCount++;
 
-                        bridge.getLogger().error("Client is up but has invalid response! ("
+                        bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Client is up but has invalid response! ("
                                 + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
                         try {
@@ -126,7 +127,7 @@ public class TextHordeRunnable implements Runnable {
                             try {
                                 bd = BrowserClient.executePOSTRequestString(new URL(clusterURL + "/api/v2/generate/text/pop"), clientData.toString(), headers);
                             } catch (IOException | JSONException e) {
-                                bridge.getLogger().error("Main Horde Cluster is down! (" + e.getLocalizedMessage() + ") Swapping to Backup Horde Cluster for the next 10 generations!");
+                                bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Main Horde Cluster is down! (" + e.getLocalizedMessage() + ") Swapping to Backup Horde Cluster for the next 10 generations!");
                                 useBackupCluster = true;
                             }
                         }
@@ -139,7 +140,7 @@ public class TextHordeRunnable implements Runnable {
 
                                     JSONObject payloadObject = popObject.getJSONObject("payload");
 
-                                    bridge.getLogger().info("Received a job with " + payloadObject.optInt("max_length", 80) + " tokens and " + payloadObject.optInt("max_context_length", 1024) + " max context length");
+                                    bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Received a job with " + payloadObject.optInt("max_length", 80) + " tokens and " + payloadObject.optInt("max_context_length", 1024) + " max context length");
 
                                     JSONObject generation = bridge.getGenerator().startChatGeneration(payloadObject, useBackupCluster ? backupClusterURL : clusterURL, clientData.getJSONArray("models").getString(0), apiKey, currentId);
                                     JSONObject submitObject = new JSONObject();
@@ -175,7 +176,7 @@ public class TextHordeRunnable implements Runnable {
                                         if (generation == null) {
                                             failedRequestsCount++;
 
-                                            bridge.getLogger().error("Aborting generation " + currentId + " due to exceeded 5 retry counts");
+                                            bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Aborting generation " + currentId + " due to exceeded 5 retry counts");
                                         } else {
                                             JSONObject rewardObject = new JSONObject(bd.getResponseString());
 
@@ -184,15 +185,15 @@ public class TextHordeRunnable implements Runnable {
                                                 backupClusterGenCount++;
                                             }
 
-                                            bridge.getLogger().info("Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
+                                            bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
                                         }
                                     } else if (bd.getResponseCode() == 404) {
-                                        bridge.getLogger().warn("Generation " + currentId + " is stale while we working on it!");
+                                        bridge.getLogger().warn((threads > 1 ? "[Thread " + threadID + "] " : "") + "Generation " + currentId + " is stale while we working on it!");
                                     }
 
                                     currentId = "";
                                 } else {
-                                    bridge.getLogger().debug("There are no generations popped to do. Skipped: " + popObject.getJSONObject("skipped").toString());
+                                    bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "There are no generations popped to do. Skipped: " + popObject.getJSONObject("skipped").toString());
 
                                     try {
                                         TimeUnit.SECONDS.sleep(HordeBridge.INTERVAL);
@@ -200,7 +201,7 @@ public class TextHordeRunnable implements Runnable {
                                     }
                                 }
                             } else if (bd.getResponseCode() == 400) {
-                                bridge.getLogger().debug("Horde Cluster has a Validation Error! (" + popObject.getString("message") + ") Trying again in 5 seconds");
+                                bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "Horde Cluster has a Validation Error! (" + popObject.getString("message") + ") Trying again in 5 seconds");
 
                                 failedRequestsCount++;
 
@@ -209,7 +210,7 @@ public class TextHordeRunnable implements Runnable {
                                 } catch (InterruptedException ignored) {
                                 }
                             } else if (bd.getResponseCode() == 401) {
-                                bridge.getLogger().error("Invalid API Key! (" + popObject.getString("message") + ") Please check if it is valid! Closing in 10 seconds.");
+                                bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Invalid API Key! (" + popObject.getString("message") + ") Please check if it is valid! Closing in 10 seconds.");
 
                                 failedRequestsCount++;
 
@@ -220,7 +221,7 @@ public class TextHordeRunnable implements Runnable {
 
                                 System.exit(0);
                             } else if (bd.getResponseCode() == 403) {
-                                bridge.getLogger().warn("Access is Denied! (" + popObject.getString("message") + ") Trying again in 10 seconds");
+                                bridge.getLogger().warn((threads > 1 ? "[Thread " + threadID + "] " : "") + "Access is Denied! (" + popObject.getString("message") + ") Trying again in 10 seconds");
 
                                 failedRequestsCount++;
 
@@ -232,7 +233,7 @@ public class TextHordeRunnable implements Runnable {
                         }
                     } catch (IOException | InterruptedException | URISyntaxException e) {
                         e.printStackTrace();
-                        bridge.getLogger().error("Cannot populate worker! (" + e.getLocalizedMessage() + ") Trying again in 10 seconds!");
+                        bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Cannot populate worker! (" + e.getLocalizedMessage() + ") Trying again in 10 seconds!");
 
                         failedRequestsCount++;
 
@@ -242,7 +243,7 @@ public class TextHordeRunnable implements Runnable {
                         }
                     } catch (JSONException e) {
                         e.printStackTrace();
-                        bridge.getLogger().error("Horde Cluster is up but has invalid response! (" + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
+                        bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Horde Cluster is up but has invalid response! (" + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
                         failedRequestsCount++;
 
@@ -255,15 +256,15 @@ public class TextHordeRunnable implements Runnable {
             } else {
                 if (clientData == null && lastValidated == null || System.currentTimeMillis() - lastValidated >= 30000) {
                     try {
-                        bridge.getLogger().debug("Retrieving KoboldAI Worker Settings...");
-                        clientData = bridge.getGenerator().validateClient(kaiName, priorityUsernames, enableChatCompletions, enablePromptJobs, chatFeatures, imageTransports);
+                        bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "Retrieving KoboldAI Worker Settings...");
+                        clientData = bridge.getGenerator().validateClient(kaiName, priorityUsernames, enableChatCompletions, enablePromptJobs, chatFeatures, imageTransports, threads);
                         lastValidated = System.currentTimeMillis();
 
                         failedRequestsCount = 0;
                     } catch (IOException | URISyntaxException | InterruptedException e) {
                         failedRequestsCount++;
 
-                        bridge.getLogger().error("Cannot connect to KoboldAI Client! ("
+                        bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Cannot connect to KoboldAI Client! ("
                                 + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
                         try {
@@ -273,7 +274,7 @@ public class TextHordeRunnable implements Runnable {
                     } catch (JSONException e) {
                         failedRequestsCount++;
 
-                        bridge.getLogger().error("Client is up but has invalid response! ("
+                        bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Client is up but has invalid response! ("
                                 + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
                         try {
@@ -302,7 +303,7 @@ public class TextHordeRunnable implements Runnable {
                             try {
                                 bd = BrowserClient.executePOSTRequestString(new URL(clusterURL + "/api/v2/generate/text/pop"), clientData.toString(), headers);
                             } catch (IOException | JSONException e) {
-                                bridge.getLogger().error("Main Horde Cluster is down! (" + e.getLocalizedMessage() + ") Swapping to Backup Horde Cluster for the next 10 generations!");
+                                bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Main Horde Cluster is down! (" + e.getLocalizedMessage() + ") Swapping to Backup Horde Cluster for the next 10 generations!");
                                 useBackupCluster = true;
                             }
                         }
@@ -316,7 +317,7 @@ public class TextHordeRunnable implements Runnable {
                                     JSONObject payloadObject = popObject.getJSONObject("payload");
                                     payloadObject.put("quiet", true);
 
-                                    bridge.getLogger().info("Received a job with " + payloadObject.optInt("max_length", 80) + " tokens and " + payloadObject.optInt("max_context_length", 1024) + " max context length");
+                                    bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Received a job with " + payloadObject.optInt("max_length", 80) + " tokens and " + payloadObject.optInt("max_context_length", 1024) + " max context length");
 
                                     if (!softprompt.equals(popObject.optString("softprompt", ""))) {
                                         softprompt = popObject.optString("softprompt", "");
@@ -364,7 +365,7 @@ public class TextHordeRunnable implements Runnable {
                                             if (generation == null) {
                                                 failedRequestsCount++;
 
-                                                bridge.getLogger().error("Aborting generation " + currentId + " due to exceeded 5 retry counts");
+                                                bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Aborting generation " + currentId + " due to exceeded 5 retry counts");
                                             } else {
                                                 JSONObject rewardObject = new JSONObject(bd.getResponseString());
 
@@ -373,7 +374,7 @@ public class TextHordeRunnable implements Runnable {
                                                     backupClusterGenCount++;
                                                 }
 
-                                                bridge.getLogger().info("Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
+                                                bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
                                             }
                                         } else if (bd.getResponseCode() == 404) {
                                             bridge.getLogger().warn("Generation " + currentId + " is stale while we working on it!");
@@ -396,7 +397,7 @@ public class TextHordeRunnable implements Runnable {
                                             if (generation == null) {
                                                 failedRequestsCount++;
 
-                                                bridge.getLogger().error("Aborting generation " + currentId + " due to exceeded 5 retry counts");
+                                                bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Aborting generation " + currentId + " due to exceeded 5 retry counts");
                                             } else {
                                                 JSONObject rewardObject = new JSONObject(bd.getResponseString());
 
@@ -405,7 +406,7 @@ public class TextHordeRunnable implements Runnable {
                                                     backupClusterGenCount++;
                                                 }
 
-                                                bridge.getLogger().info("Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
+                                                bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
                                             }
                                         } else if (bd.getResponseCode() == 404) {
                                             bridge.getLogger().warn("Generation " + currentId + " is stale while we working on it!");
@@ -414,7 +415,7 @@ public class TextHordeRunnable implements Runnable {
                                         currentId = "";
                                     }
                                 } else {
-                                    bridge.getLogger().debug("There are no generations popped to do. Skipped: " + popObject.getJSONObject("skipped").toString());
+                                    bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "There are no generations popped to do. Skipped: " + popObject.getJSONObject("skipped").toString());
 
                                     try {
                                         TimeUnit.SECONDS.sleep(HordeBridge.INTERVAL);
@@ -422,7 +423,7 @@ public class TextHordeRunnable implements Runnable {
                                     }
                                 }
                             } else if (bd.getResponseCode() == 400) {
-                                bridge.getLogger().debug("Horde Cluster has a Validation Error! (" + popObject.getString("message") + ") Trying again in 5 seconds");
+                                bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "Horde Cluster has a Validation Error! (" + popObject.getString("message") + ") Trying again in 5 seconds");
 
                                 failedRequestsCount++;
 
@@ -431,7 +432,7 @@ public class TextHordeRunnable implements Runnable {
                                 } catch (InterruptedException ignored) {
                                 }
                             } else if (bd.getResponseCode() == 401) {
-                                bridge.getLogger().error("Invalid API Key! (" + popObject.getString("message") + ") Please check if it is valid! Closing in 10 seconds.");
+                                bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Invalid API Key! (" + popObject.getString("message") + ") Please check if it is valid! Closing in 10 seconds.");
 
                                 failedRequestsCount++;
 
@@ -442,7 +443,7 @@ public class TextHordeRunnable implements Runnable {
 
                                 System.exit(0);
                             } else if (bd.getResponseCode() == 403) {
-                                bridge.getLogger().warn("Access is Denied! (" + popObject.getString("message") + ") Trying again in 10 seconds");
+                                bridge.getLogger().warn((threads > 1 ? "[Thread " + threadID + "] " : "") + "Access is Denied! (" + popObject.getString("message") + ") Trying again in 10 seconds");
 
                                 failedRequestsCount++;
 
@@ -464,7 +465,7 @@ public class TextHordeRunnable implements Runnable {
                         }
                     } catch (JSONException e) {
                         e.printStackTrace();
-                        bridge.getLogger().error("Horde Cluster is up but has invalid response! (" + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
+                        bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Horde Cluster is up but has invalid response! (" + e.getLocalizedMessage() + ") Trying again in 5 seconds!");
 
                         failedRequestsCount++;
 

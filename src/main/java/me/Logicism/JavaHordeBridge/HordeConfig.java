@@ -36,6 +36,8 @@ public class HordeConfig {
 
     private List<String> imageTransports;
 
+    private int threads;
+
     public String getWorkerName() {
         return workerName;
     }
@@ -98,5 +100,9 @@ public class HordeConfig {
 
     public List<String> getImageTransports() {
         return imageTransports;
+    }
+
+    public int getThreads() {
+        return threads;
     }
 }

@@ -84,3 +84,6 @@ chatFeatures:
 imageTransports:
   - url
   - base64
+
+# The number of threads to enable for the text worker. For interrogation, this is only set to 1 by default.
+threads: 1
