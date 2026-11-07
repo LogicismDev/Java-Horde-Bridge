@@ -94,10 +94,10 @@ public class KAIGenerator {
             JSONObject payload = convertPayload(model, rawPayload, resolveMessages(rawPayload));
             if (payload.optBoolean("stream", false)) {
                 headers.put("Content-Type", "text/event-stream");
-                generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/v1/chat/completions"), payload.toString(), headers);
+                generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/v1/chat/completions"), payload.toString(), headers, 900);
                 if (generationData.getResponseCode() == 415) {
                     headers.replace("Content-Type", "application/json");
-                    generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/v1/chat/completions"), payload.toString(), headers);
+                    generationData = BrowserClient.executePOSTRequest(new URL(kaiURL + "/v1/chat/completions"), payload.toString(), headers, 900);
                 }
 
                 StringBuilder content = new StringBuilder();
@@ -109,6 +109,7 @@ public class KAIGenerator {
 
                 boolean contentStarted = false;
                 boolean reasoningStarted = false;
+                long lastProgressMs = 0;
 
                 JSONObject usage = null;
                 try (InputStream in = generationData.getResponse()) {
@@ -187,19 +188,28 @@ public class KAIGenerator {
                                 if (!finishReasonChoice.isEmpty()) finishReason = finishReasonChoice;
 
                                 if (!contentDelta.isEmpty() || !reasoningContentDelta.isEmpty()) {
-                                    JSONObject bodyDelta = new JSONObject().put("content", contentDelta).put("reasoning_content", reasoningContentDelta);
-                                    JSONObject body = new JSONObject().put("id", currentId).put("seq", seq++).put("delta", bodyDelta);
+                                    // Horde rate-limits progress updates; one per token gets a
+                                    // 429 and the old code aborted the whole generation on it.
+                                    // Send at most every 5 s and never let a failure cancel.
+                                    if (System.currentTimeMillis() - lastProgressMs >= 5000) {
+                                        lastProgressMs = System.currentTimeMillis();
+                                        try {
+                                            JSONObject bodyDelta = new JSONObject().put("content", contentDelta).put("reasoning_content", reasoningContentDelta);
+                                            JSONObject body = new JSONObject().put("id", currentId).put("seq", seq++).put("delta", bodyDelta);
 
-                                    Map<String, String> progressHeaders = new HashMap<>();
-                                    progressHeaders.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
-                                    progressHeaders.put("Content-Type", "application/json");
-                                    progressHeaders.put("apikey", apiKey);
-                                    BrowserData bd = BrowserClient.executePOSTRequestString(new URL(clusterURL + "/api/v2/generate/text/progress"), body.toString(), progressHeaders);
+                                            Map<String, String> progressHeaders = new HashMap<>();
+                                            progressHeaders.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
+                                            progressHeaders.put("Content-Type", "application/json");
+                                            progressHeaders.put("apikey", apiKey);
+                                            BrowserData bd = BrowserClient.executePOSTRequestString(new URL(clusterURL + "/api/v2/generate/text/progress"), body.toString(), progressHeaders);
 
-                                    JSONObject response = new JSONObject(bd.getResponseString());
-                                    if (response.optBoolean("cancelled", false)) {
-                                        cancelled = true;
-                                        break input;
+                                            JSONObject response = new JSONObject(bd.getResponseString());
+                                            if (response.optBoolean("cancelled", false)) {
+                                                cancelled = true;
+                                                break input;
+                                            }
+                                        } catch (Exception ignored) {
+                                        }
                                     }
                                 }
                             }
@@ -225,8 +235,11 @@ public class KAIGenerator {
                 }
             } else {
                 headers.put("Content-Type", "application/json");
-                generationData = BrowserClient.executePOSTRequestString(new URL(kaiURL + "/v1/chat/completions"), payload.toString(), headers);
+                generationData = BrowserClient.executePOSTRequestString(new URL(kaiURL + "/v1/chat/completions"), payload.toString(), headers, 900);
 
+                if (generationData.getResponseCode() != 200) {
+                    bridge.getLogger().error("Engine returned " + generationData.getResponseCode() + ": " + generationData.getResponseString());
+                }
                 JSONObject response = new JSONObject(generationData.getResponseString());
                 JSONObject choice = response.getJSONArray("choices").getJSONObject(0);
                 JSONObject message = choice.getJSONObject("message");
@@ -239,7 +252,7 @@ public class KAIGenerator {
                 return submitObject;
             }
         } catch (IOException | URISyntaxException e) {
-            bridge.getLogger().debug("Client is unavailable, canceling request!");
+            bridge.getLogger().debug("Client is unavailable, canceling request! (" + e + ")");
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -247,7 +260,7 @@ public class KAIGenerator {
         return null;
     }
 
-    public JSONObject validateClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, boolean enablePromptJobs, String[] chatFeatures, String[] imageTransports, int threads) throws IOException, URISyntaxException, InterruptedException {
+    public JSONObject validateClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, boolean enablePromptJobs, String[] chatFeatures, String[] imageTransports) throws IOException, URISyntaxException, InterruptedException {
         JSONObject clientData = null;
         while (clientData == null) {
             BrowserData bd = BrowserClient.executeGETRequestString(new URL(kaiURL + "/api/latest/model/"), new HashMap<>());
@@ -264,7 +277,7 @@ public class KAIGenerator {
                 model = model.replace("_", "/");
             }
 
-            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxLengthObject.getInt("value")).put("max_context_length", maxContextLengthObject.getInt("value")).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", enablePromptJobs).put("model_id", model).put("chat_jobs", enableChatFeatures).put("threads", threads);
+            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxLengthObject.getInt("value")).put("max_context_length", maxContextLengthObject.getInt("value")).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", enablePromptJobs).put("model_id", model).put("chat_jobs", enableChatFeatures);
 
             if (priorityUsernames.length != 0) {
                 JSONArray priorityUsernameArrays = new JSONArray();
@@ -302,6 +315,17 @@ public class KAIGenerator {
         return clientData;
     }
 
+    // The 5.0 jar's TextHordeRunnable calls the 8-arg form; keep it and pull the
+    // slot count from the environment so the worker still advertises all slots.
+    public JSONObject validateOpenAIClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports) throws IOException, URISyntaxException, InterruptedException {
+        int slots = 1;
+        try {
+            slots = Integer.parseInt(System.getenv().getOrDefault("BRIDGE_PROCS", "1"));
+        } catch (NumberFormatException ignored) {
+        }
+        return validateOpenAIClient(kaiName, priorityUsernames, enableChatFeatures, model, maxTokens, maxTokenLength, chatFeatures, imageTransports, slots);
+    }
+
     public JSONObject validateOpenAIClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports, int threads) throws IOException, URISyntaxException, InterruptedException {
         JSONObject clientData = null;
         while (clientData == null) {
@@ -311,7 +335,7 @@ public class KAIGenerator {
                 model = modelObject.getJSONArray("data").getJSONObject(0).getString("id");
             }
 
-            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxTokens).put("max_context_length", maxTokenLength).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", false).put("model_id", model).put("chat_jobs", enableChatFeatures).put("threads", threads);
+            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxTokens).put("max_context_length", maxTokenLength).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", true).put("model_id", model).put("chat_jobs", enableChatFeatures).put("threads", threads);
 
             if (priorityUsernames.length != 0) {
                 JSONArray priorityUsernameArrays = new JSONArray();
@@ -345,17 +369,41 @@ public class KAIGenerator {
     }
 
     private JSONObject convertPayload(String model, JSONObject payload, JSONArray messages) {
+        // Prompt jobs carry their sampler settings in a nested "params" object and
+        // omit several of them; chat jobs put them at the top level. Accept both.
+        JSONObject params = payload.optJSONObject("params");
+        if (params == null) params = payload;
+
         JSONObject convertedPayload = new JSONObject();
         convertedPayload.put("model", model);
         convertedPayload.put("messages", messages);
-        convertedPayload.put("max_tokens", payload.getInt("max_length"));
-        convertedPayload.put("temperature", payload.get("temperature"));
-        convertedPayload.put("top_p", payload.get("top_p"));
-        convertedPayload.put("frequency_penalty", payload.get("frequency_penalty"));
-        convertedPayload.put("presence_penalty", payload.get("presence_penalty"));
+        convertedPayload.put("max_tokens", payload.optInt("max_length", params.optInt("max_length", 80)));
+        // Horde allows wider ranges than vLLM's OpenAI schema; clamp so a valid
+        // Horde job cannot produce a 400.
+        double temperature = params.optDouble("temperature", payload.optDouble("temperature", 0.7));
+        convertedPayload.put("temperature", Math.max(0.0, Math.min(2.0, temperature)));
+        convertedPayload.put("top_p", Math.max(0.0, Math.min(1.0, params.optDouble("top_p", payload.optDouble("top_p", 0.95)))));
+        double frequencyPenalty = params.optDouble("frequency_penalty", payload.optDouble("frequency_penalty", 0.0));
+        convertedPayload.put("frequency_penalty", Math.max(-2.0, Math.min(2.0, frequencyPenalty)));
+        double presencePenalty = params.optDouble("presence_penalty", payload.optDouble("presence_penalty", 0.0));
+        convertedPayload.put("presence_penalty", Math.max(-2.0, Math.min(2.0, presencePenalty)));
 
         if (payload.has("stream_progress")) convertedPayload.put("stream", payload.optBoolean("stream_progress", false)).put("stream_options", new JSONObject().put("include_usage", true)).remove("stream_progress");
-        if (payload.has("stop_sequence")) convertedPayload.put("stop", payload.opt("stop_sequence"));
+        // vLLM's OpenAI endpoint accepts at most 4 stop sequences; Horde prompt
+        // jobs routinely send 8-12. Keep the first four non-empty ones.
+        if (params.has("stop_sequence")) {
+            Object rawStops = params.opt("stop_sequence");
+            if (rawStops instanceof JSONArray) {
+                JSONArray stops = new JSONArray();
+                for (int i = 0; i < ((JSONArray) rawStops).length() && stops.length() < 4; i++) {
+                    String stop = ((JSONArray) rawStops).optString(i, "");
+                    if (!stop.isEmpty()) stops.put(stop);
+                }
+                if (!stops.isEmpty()) convertedPayload.put("stop", stops);
+            } else if (rawStops instanceof String) {
+                if (!((String) rawStops).isEmpty()) convertedPayload.put("stop", rawStops);
+            }
+        }
         for (String key : List.of("seed", "reasoning_effort", "tools", "tool_choice",
                 "parallel_tool_calls", "response_format")) {
             if (payload.has(key)) payload.put(key, payload.opt(key));      // pass through unchanged
@@ -365,7 +413,17 @@ public class KAIGenerator {
     }
 
     private JSONArray resolveMessages(JSONObject payload) {
-        if (payload.has("messages")) return payload.optJSONArray("messages", new JSONArray());
+        if (payload.has("messages")) {
+            JSONArray existing = payload.optJSONArray("messages", new JSONArray());
+            if (!existing.isEmpty()) return existing;
+        }
+
+        // Text/prompt jobs carry "prompt", not "messages". Wrap it as a single
+        // user turn so the chat endpoint does not reject an empty conversation.
+        String plainPrompt = payload.optString("prompt", "");
+        if (!plainPrompt.isEmpty()) {
+            return new JSONArray().put(new JSONObject().put("role", "user").put("content", plainPrompt));
+        }
 
         String url = payload.optString("messages_url", "");
         if (!url.isEmpty()) {

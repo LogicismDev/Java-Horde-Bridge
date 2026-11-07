@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class BrowserClient {
 
-    private static HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
+    private static HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(30)).build();
 
     public static BrowserData executeGETRequest(URL url, Map<String, String> headers) throws IOException, URISyntaxException, InterruptedException {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofSeconds(30)).uri(url.toURI()).GET();
@@ -54,7 +54,11 @@ public class BrowserClient {
     }
 
     public static BrowserData executePOSTRequest(URL url, String data, Map<String, String> headers) throws IOException, InterruptedException, URISyntaxException {
-        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofSeconds(30)).uri(url.toURI()).POST(HttpRequest.BodyPublishers.ofString(data, StandardCharsets.UTF_8));
+        return executePOSTRequest(url, data, headers, 30);
+    }
+
+    public static BrowserData executePOSTRequest(URL url, String data, Map<String, String> headers, int timeoutSeconds) throws IOException, InterruptedException, URISyntaxException {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofSeconds(timeoutSeconds)).uri(url.toURI()).POST(HttpRequest.BodyPublishers.ofString(data, StandardCharsets.UTF_8));
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             requestBuilder = requestBuilder.header(entry.getKey(), entry.getValue());
         }
@@ -65,7 +69,11 @@ public class BrowserClient {
     }
 
     public static BrowserData executePOSTRequestString(URL url, String data, Map<String, String> headers) throws IOException, InterruptedException, URISyntaxException {
-        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofSeconds(30)).uri(url.toURI()).POST(HttpRequest.BodyPublishers.ofString(data, StandardCharsets.UTF_8));
+        return executePOSTRequestString(url, data, headers, 30);
+    }
+
+    public static BrowserData executePOSTRequestString(URL url, String data, Map<String, String> headers, int timeoutSeconds) throws IOException, InterruptedException, URISyntaxException {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofSeconds(timeoutSeconds)).uri(url.toURI()).POST(HttpRequest.BodyPublishers.ofString(data, StandardCharsets.UTF_8));
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             requestBuilder = requestBuilder.header(entry.getKey(), entry.getValue());
         }
