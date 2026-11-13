@@ -9,13 +9,13 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.io.*;
-import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
@@ -24,10 +24,81 @@ public class KAIGenerator {
 
     private HordeBridge bridge;
     private String kaiURL;
+    private volatile String engine;
+    private volatile long engineAt;
 
     public KAIGenerator(HordeBridge bridge, String kaiURL) {
         this.bridge = bridge;
         this.kaiURL = kaiURL;
+    }
+
+    /** Identify the backend so engine-specific params are only sent where they exist. */
+    private String probe(String path) {
+        try {
+            BrowserData bd = BrowserClient.executeGETRequestString(new URL(kaiURL + path), new HashMap<>(), 3);
+            if (bd.getResponseCode() == 200) return bd.getResponseString();
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private String engine() {
+        // Cache a real hit forever; an "openai" fallback may just mean the
+        // backend was still starting, so retry it once a minute.
+        if (engine != null && (!engine.equals("openai") || System.currentTimeMillis() - engineAt < 60000)) return engine;
+        String found = "openai";
+        if (probe("/api/extra/version") != null) found = "koboldcpp";
+        else if (probe("/props") != null) found = "llamacpp";
+        else if (probe("/get_model_info") != null) found = "sglang";
+        else if (probe("/v1/model") != null) found = "tabbyapi";
+        else {
+            String version = probe("/version");
+            if (version != null && version.contains("version")) found = "vllm";
+            String models = probe("/v1/models");
+            if (models != null) {
+                String owner = "";
+                try {
+                    owner = new JSONObject(models).getJSONArray("data").getJSONObject(0)
+                            .optString("owned_by", "").toLowerCase();
+                } catch (JSONException ignored) {
+                }
+                if (owner.contains("aphrodite")) found = "aphrodite";
+                else if (owner.contains("llama.cpp") || owner.contains("llamacpp")) found = "llamacpp";
+                else if (owner.contains("vllm")) found = "vllm";
+            } else {
+                String metrics = probe("/metrics");
+                if (metrics != null && metrics.contains("vllm:")) found = "vllm";
+            }
+        }
+        engine = found;
+        engineAt = System.currentTimeMillis();
+        bridge.getLogger().info("Backend engine detected: " + found);
+        return found;
+    }
+
+    /** Extras the detected engine understands; everything else stays off its payload. */
+    private Set<String> allowedExtras() {
+        switch (engine()) {
+            case "vllm":
+            case "aphrodite":
+            case "sglang":
+                return Set.of("top_k", "min_p", "top_a", "typical_p", "tfs", "repetition_penalty",
+                        "dynatemp_range", "dynatemp_exponent", "truncate_prompt_tokens",
+                        "logit_bias", "n", "logprobs", "top_logprobs", "include_stop_str_in_output");
+            case "koboldcpp":
+            case "llamacpp":
+                return Set.of("top_k", "min_p", "top_a", "typical_p", "tfs", "repetition_penalty",
+                        "dynatemp_range", "dynatemp_exponent", "truncate_prompt_tokens",
+                        "logit_bias", "n", "logprobs", "top_logprobs", "include_stop_str_in_output",
+                        "custom_token_bans", "use_default_badwordsids", "mirostat_mode",
+                        "mirostat_tau", "mirostat_eta", "eta_cutoff", "eps_cutoff",
+                        "dynatemp_max", "dynatemp_min");
+            case "tabbyapi":
+                return Set.of("top_k", "min_p", "top_a", "typical_p", "tfs", "repetition_penalty",
+                        "truncate_prompt_tokens", "logit_bias", "n", "logprobs", "top_logprobs");
+            default:
+                return Set.of("n", "logprobs", "top_logprobs");
+        }
     }
 
     public String startGeneration(JSONObject payload) {
@@ -38,7 +109,7 @@ public class KAIGenerator {
         headers.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
         while (retryCount < 5) {
             try {
-                BrowserData generationData = BrowserClient.executePOSTRequestString(new URL(kaiURL + "/api/latest/generate"), payload.toString(), headers);
+                BrowserData generationData = BrowserClient.executePOSTRequestString(new URL(kaiURL + "/api/latest/generate"), payload.toString(), headers, 900);
 
                 if (generationData.getResponseCode() == 200) {
                     JSONObject generationObject = new JSONObject(generationData.getResponseString());
@@ -112,10 +183,12 @@ public class KAIGenerator {
                 long lastProgressMs = 0;
 
                 JSONObject usage = null;
+                Object seed = null;
                 try (InputStream in = generationData.getResponse()) {
                     if (generationData.getResponseCode() != 200) {
                         String text = new String(in.readNBytes(300), StandardCharsets.UTF_8);
-                        System.out.println("backend HTTP " + generationData.getResponseCode() + ": " + text);
+                        bridge.getLogger().error("backend HTTP " + generationData.getResponseCode() + ": " + text);
+                        return null;
                     }
 
                     BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
@@ -138,10 +211,14 @@ public class KAIGenerator {
 
                             JSONObject u = chunk.optJSONObject("usage", new JSONObject());
                             if (!u.isEmpty()) usage = u;
+                            if (chunk.has("seed")) seed = chunk.opt("seed");
 
-                            for (int i = 0; i < chunk.optJSONArray("choices").length(); i++) {
-                                JSONObject choice = chunk.optJSONArray("choices").getJSONObject(i);
+                            JSONArray choices = chunk.optJSONArray("choices");
+                            if (choices == null) continue;
+                            for (int i = 0; i < choices.length(); i++) {
+                                JSONObject choice = choices.getJSONObject(i);
                                 JSONObject delta = choice.optJSONObject("delta");
+                                if (delta == null) continue;
 
                                 String contentDelta = delta.optString("content", "");
                                 String reasoningContentDelta = delta.optString("reasoning_content", "");
@@ -224,6 +301,7 @@ public class KAIGenerator {
                     }
 
                     JSONObject submitObject = new JSONObject().put("content", content.toString()).put("finish_reason", finishReason).put("usage", usage);
+                    if (seed != null) submitObject.put("seed", seed);
                     if (!reasoningContent.toString().isEmpty()) {
                         submitObject.put("reasoning_content", reasoningContent.toString());
                     }
@@ -244,15 +322,19 @@ public class KAIGenerator {
                 JSONObject choice = response.getJSONArray("choices").getJSONObject(0);
                 JSONObject message = choice.getJSONObject("message");
                 String reasoningContent = choice.optString("reasoning_content", "");
-                if (!reasoningContent.isEmpty()) reasoningContent = choice.optString("reasoning", "");
+                if (reasoningContent.isEmpty()) reasoningContent = choice.optString("reasoning", "");
 
                 JSONObject submitObject = new JSONObject().put("content", message.optString("content", "")).put("finish_reason", choice.opt("finish_reason")).put("usage", response.opt("usage"));
+                if (response.has("seed")) submitObject.put("seed", response.opt("seed"));
                 if (!reasoningContent.isEmpty()) submitObject.put("reasoning_content", reasoningContent);
+                if (message.has("tool_calls")) submitObject.put("tool_calls", message.getJSONArray("tool_calls"));
 
                 return submitObject;
             }
         } catch (IOException | URISyntaxException e) {
             bridge.getLogger().debug("Client is unavailable, canceling request! (" + e + ")");
+        } catch (JSONException e) {
+            bridge.getLogger().error("Engine returned an unparseable body: " + e.getMessage());
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -315,18 +397,8 @@ public class KAIGenerator {
         return clientData;
     }
 
-    // The 5.0 jar's TextHordeRunnable calls the 8-arg form; keep it and pull the
-    // slot count from the environment so the worker still advertises all slots.
-    public JSONObject validateOpenAIClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports) throws IOException, URISyntaxException, InterruptedException {
-        int slots = 1;
-        try {
-            slots = Integer.parseInt(System.getenv().getOrDefault("BRIDGE_PROCS", "1"));
-        } catch (NumberFormatException ignored) {
-        }
-        return validateOpenAIClient(kaiName, priorityUsernames, enableChatFeatures, model, maxTokens, maxTokenLength, chatFeatures, imageTransports, slots);
-    }
-
-    public JSONObject validateOpenAIClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports, int threads) throws IOException, URISyntaxException, InterruptedException {
+    public JSONObject validateOpenAIClient(String kaiName, String[] priorityUsernames, boolean enableChatFeatures, boolean enablePromptJobs, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports, int threads) throws IOException, URISyntaxException, InterruptedException {
+        engine(); // detect before the first job so the probe cost is not in it
         JSONObject clientData = null;
         while (clientData == null) {
             if (model.isEmpty()) {
@@ -335,7 +407,7 @@ public class KAIGenerator {
                 model = modelObject.getJSONArray("data").getJSONObject(0).getString("id");
             }
 
-            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxTokens).put("max_context_length", maxTokenLength).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", true).put("model_id", model).put("chat_jobs", enableChatFeatures).put("threads", threads);
+            clientData = new JSONObject().put("name", kaiName).put("models", new JSONArray().put(model)).put("max_length", maxTokens).put("max_context_length", maxTokenLength).put("bridge_version", HordeBridge.BRIDGE_VERSION).put("bridge_agent", HordeBridge.BRIDGE_AGENT).put("prompt_jobs", enablePromptJobs).put("model_id", model).put("chat_jobs", enableChatFeatures).put("threads", threads);
 
             if (priorityUsernames.length != 0) {
                 JSONArray priorityUsernameArrays = new JSONArray();
@@ -373,9 +445,11 @@ public class KAIGenerator {
         // omit several of them; chat jobs put them at the top level. Accept both.
         JSONObject params = payload.optJSONObject("params");
         if (params == null) params = payload;
+        bridge.getLogger().debug("Payload keys: " + payload.keySet() + " / " + params.keySet());
 
         JSONObject convertedPayload = new JSONObject();
         convertedPayload.put("model", model);
+        convertedPayload.put("quiet", true);
         convertedPayload.put("messages", messages);
         convertedPayload.put("max_tokens", payload.optInt("max_length", params.optInt("max_length", 80)));
         // Horde allows wider ranges than vLLM's OpenAI schema; clamp so a valid
@@ -393,22 +467,72 @@ public class KAIGenerator {
         // jobs routinely send 8-12. Keep the first four non-empty ones.
         if (params.has("stop_sequence")) {
             Object rawStops = params.opt("stop_sequence");
-            if (rawStops instanceof JSONArray) {
+            if (rawStops instanceof JSONArray stopArray) {
                 JSONArray stops = new JSONArray();
-                for (int i = 0; i < ((JSONArray) rawStops).length() && stops.length() < 4; i++) {
-                    String stop = ((JSONArray) rawStops).optString(i, "");
+                for (int i = 0; i < stopArray.length() && stops.length() < 4; i++) {
+                    String stop = stopArray.optString(i, "");
                     if (!stop.isEmpty()) stops.put(stop);
                 }
                 if (!stops.isEmpty()) convertedPayload.put("stop", stops);
-            } else if (rawStops instanceof String) {
-                if (!((String) rawStops).isEmpty()) convertedPayload.put("stop", rawStops);
+            } else if (rawStops instanceof String stop && !stop.isEmpty()) {
+                convertedPayload.put("stop", stop);
             }
         }
-        for (String key : List.of("seed", "reasoning_effort", "tools", "tool_choice",
+        for (String key : List.of("reasoning_effort", "tools", "tool_choice",
                 "parallel_tool_calls", "response_format")) {
-            if (payload.has(key)) payload.put(key, payload.opt(key));      // pass through unchanged
+            // Prompt jobs nest these under params; chat jobs keep them at the top.
+            if (params.has(key)) convertedPayload.put(key, params.opt(key));
+            else if (payload.has(key)) convertedPayload.put(key, payload.opt(key)); // pass through unchanged
+        }
+        Set<String> allowed = allowedExtras();
+        // Seed: the chat payload uses "seed", the native one "sampler_seed".
+        if (params.has("seed") || payload.has("seed")) {
+            convertedPayload.put("seed", params.has("seed") ? params.opt("seed") : payload.opt("seed"));
+        } else if (params.has("sampler_seed") || payload.has("sampler_seed")) {
+            convertedPayload.put("seed", params.has("sampler_seed") ? params.opt("sampler_seed") : payload.opt("sampler_seed"));
+        }
+        // Samplers the OpenAI schema does not define but some engines accept as
+        // extras; only the detected engine's own set is sent.
+        for (String key : List.of("top_k", "min_p", "top_a", "tfs", "logit_bias",
+                "n", "logprobs", "top_logprobs", "eta_cutoff", "eps_cutoff",
+                "dynatemp_range", "dynatemp_exponent", "use_default_badwordsids",
+                "include_stop_str_in_output")) {
+            if (!allowed.contains(key)) continue;
+            if (params.has(key)) convertedPayload.put(key, params.opt(key));
+            else if (payload.has(key)) convertedPayload.put(key, payload.opt(key));
+        }
+        if (convertedPayload.has("top_k") && convertedPayload.optInt("top_k", 0) == 0) {
+            convertedPayload.put("top_k", -1); // 0 means "disabled" on Horde; -1 on the engines
+        }
+        // Renamed fields, straight from the official bridge.
+        String[][] renamed = {
+                {"typical", "typical_p"},
+                {"badwordsids", "custom_token_bans"},
+                {"mirostat", "mirostat_mode"},
+                {"mirostat_tau", "mirostat_tau"},
+                {"mirostat_eta", "mirostat_eta"},
+                {"dynatemp_max", "dynatemp_max"},
+                {"dynatemp_min", "dynatemp_min"},
+        };
+        for (String[] pair : renamed) {
+            if (!allowed.contains(pair[1])) continue;
+            if (params.has(pair[0])) convertedPayload.put(pair[1], params.opt(pair[0]));
+            else if (payload.has(pair[0])) convertedPayload.put(pair[1], payload.opt(pair[0]));
+        }
+        // rep_pen has no OpenAI equivalent; repetition_penalty is the closest.
+        if (allowed.contains("repetition_penalty") && (params.has("rep_pen") || payload.has("rep_pen"))) {
+            double repPen = params.optDouble("rep_pen", payload.optDouble("rep_pen", 1.0));
+            convertedPayload.put("repetition_penalty", Math.max(0.0, Math.min(2.0, repPen)));
+        }
+        // Leave room for the answer inside the context the client asked for.
+        if (allowed.contains("truncate_prompt_tokens")
+                && (params.has("max_context_length") || payload.has("max_context_length"))) {
+            int ctx = params.optInt("max_context_length", payload.optInt("max_context_length", 2048));
+            int answer = convertedPayload.optInt("max_tokens", 80);
+            convertedPayload.put("truncate_prompt_tokens", Math.max(1, ctx - answer));
         }
 
+        bridge.getLogger().debug("Converted keys: " + convertedPayload.keySet());
         return convertedPayload;
     }
 

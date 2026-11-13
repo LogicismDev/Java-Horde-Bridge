@@ -16,6 +16,65 @@ import java.util.concurrent.TimeUnit;
 
 public class TextHordeRunnable implements Runnable {
 
+    // Threads 1-2 hand filler jobs to the rest so real traffic keeps two slots.
+    private static final java.util.concurrent.BlockingQueue<JSONObject> FILLER_JOBS =
+            new java.util.concurrent.LinkedBlockingQueue<>();
+    private static final java.util.concurrent.atomic.AtomicInteger ACTIVE =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    private static boolean isFiller(JSONObject popObject) {
+        JSONObject payload = popObject.optJSONObject("payload");
+        return payload != null && payload.optString("prompt", "").stripTrailing().endsWith("(ignore)");
+    }
+
+    // Horde only accepts these four; the shim reports "error" for a failed job.
+    private static String safeFinishReason(JSONObject generation) {
+        String fr = generation.optString("finish_reason", "stop");
+        return switch (fr) {
+            case "stop", "length", "content_filter", "tool_calls", "function_call" -> fr;
+            default -> "stop";
+        };
+    }
+
+
+    // Build the submit body: chat jobs submit a message, prompt jobs a
+    // generation. Sending a chat body for a text job is rejected by Horde.
+    private JSONObject buildSubmit(JSONObject generation, JSONObject payloadObject, String modelId) {
+        boolean chatJob = payloadObject.has("messages") || payloadObject.has("messages_url");
+        JSONObject submitObject = new JSONObject().put("id", currentId).put("model_id", modelId);
+        if (generation == null) {
+            if (chatJob) submitObject.put("finish_reason", "stop");
+            return submitObject.put("state", "faulted").put("fault_reason", "generation_error");
+        }
+        submitObject.put("state", "ok");
+        if (chatJob) {
+            JSONObject messageObject = new JSONObject().put("role", "assistant");
+            String finishReason = generation.optString("finish_reason", "stop");
+            if (finishReason.equals("tool_calls") || finishReason.equals("function_call")) {
+                messageObject.put("content", JSONObject.NULL);
+                submitObject.put("finish_reason", "tool_calls");
+                if (generation.has("tool_calls")) messageObject.put("tool_calls", generation.getJSONArray("tool_calls"));
+            } else {
+                submitObject.put("finish_reason", safeFinishReason(generation));
+                messageObject.put("content", generation.getString("content"));
+                if (generation.has("reasoning_content")) {
+                    messageObject.put("reasoning_content", generation.getString("reasoning_content"));
+                }
+            }
+            submitObject.put("message", messageObject);
+        } else {
+            submitObject.put("generation", generation.getString("content"));
+        }
+        JSONObject usage = generation.optJSONObject("usage", new JSONObject());
+        for (String key : List.of("prompt_tokens", "completion_tokens")) {
+            int n = usage.optInt(key, -1);
+            if (n != -1) submitObject.put(key, n);
+        }
+        int rtokens = usage.optInt("completion_tokens_details", -1);
+        if (rtokens != -1) submitObject.put("reasoning_tokens", rtokens);
+        return submitObject;
+    }
+
     private final HordeBridge bridge;
     private final int threadID;
     private final String kaiURL;
@@ -43,6 +102,61 @@ public class TextHordeRunnable implements Runnable {
     private String currentId = "";
     private String softprompt = "";
 
+
+    // One popped job (or the no-job case). Runs off the calling thread.
+    private void processJob(JSONObject popObject, JSONObject clientData) throws IOException, URISyntaxException, InterruptedException, JSONException {
+        ACTIVE.incrementAndGet();
+        try {
+            BrowserData bd = null;
+            Map<String, String> headers = new HashMap<>();
+            headers.put("apikey", apiKey);
+            headers.put("Content-Type", "application/json");
+            headers.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
+            if (!popObject.has("id") || popObject.isNull("id")) {
+                bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "There are no generations popped to do. Skipped: " + popObject.optJSONObject("skipped"));
+                try {
+                    TimeUnit.SECONDS.sleep(HordeBridge.INTERVAL);
+                } catch (InterruptedException ignored) {
+                }
+                return;
+            }
+                                        currentId = popObject.getString("id");
+
+                                        JSONObject payloadObject = popObject.getJSONObject("payload");
+
+                                        bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Received a job " + currentId + " with " + payloadObject.optInt("max_length", 80) + " tokens and " + payloadObject.optInt("max_context_length", 1024) + " max context length");
+
+                                        JSONObject generation = bridge.getGenerator().startChatGeneration(payloadObject, (useBackupCluster ? backupClusterURL : clusterURL), clientData.getJSONArray("models").getString(0), apiKey, currentId);
+                                        JSONObject submitObject = buildSubmit(generation, payloadObject, clientData.getJSONArray("models").getString(0));
+
+                                        bd = BrowserClient.executePOSTRequestString(new URL((useBackupCluster ? backupClusterURL : clusterURL) + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
+
+                                        if (bd.getResponseCode() == 200) {
+                                            if (generation == null) {
+                                                failedRequestsCount++;
+
+                                                bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Aborting generation " + currentId + " due to exceeded 5 retry counts");
+                                            } else {
+                                                JSONObject rewardObject = new JSONObject(bd.getResponseString());
+
+                                                failedRequestsCount = 0;
+                                                if (useBackupCluster) {
+                                                    backupClusterGenCount++;
+                                                }
+
+                                                bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
+                                            }
+                                        } else if (bd.getResponseCode() == 404) {
+                                            bridge.getLogger().warn((threads > 1 ? "[Thread " + threadID + "] " : "") + "Generation " + currentId + " is stale while we working on it!");
+                                        } else {
+                                            bridge.getLogger().warn((threads > 1 ? "[Thread " + threadID + "] " : "") + "Submit rejected " + bd.getResponseCode() + " for " + currentId + ": " + bd.getResponseString());
+                                        }
+
+                                        currentId = "";
+        } finally {
+            ACTIVE.decrementAndGet();
+        }
+    }
     public TextHordeRunnable(HordeBridge bridge, int threadID, String kaiURL, String kaiName, String apiKey, String clusterURL, String backupClusterURL, String[] priorityUsernames, boolean enableChatCompletions, boolean enablePromptJobs, boolean disableKoboldClientVerifier, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports, int threads) {
         this.bridge = bridge;
         this.threadID = threadID;
@@ -63,19 +177,6 @@ public class TextHordeRunnable implements Runnable {
         this.threads = threads;
     }
 
-    // Compatibility constructor for the 5.0 release HordeBridge.main caller.
-    public TextHordeRunnable(HordeBridge bridge, String kaiURL, String kaiName, String apiKey, String clusterURL, String backupClusterURL, String[] priorityUsernames, boolean enableChatCompletions, boolean enablePromptJobs, boolean disableKoboldClientVerifier, String model, int maxTokens, int maxTokenLength, String[] chatFeatures, String[] imageTransports) {
-        this(bridge, 1, kaiURL, kaiName, apiKey, clusterURL, backupClusterURL, priorityUsernames, enableChatCompletions, enablePromptJobs, disableKoboldClientVerifier, model, maxTokens, maxTokenLength, chatFeatures, imageTransports, envThreads());
-    }
-
-    private static int envThreads() {
-        try {
-            return Integer.parseInt(System.getenv().getOrDefault("BRIDGE_PROCS", "1"));
-        } catch (NumberFormatException e) {
-            return 1;
-        }
-    }
-
     @Override
     public void run() {
         while (isRunning) {
@@ -94,7 +195,7 @@ public class TextHordeRunnable implements Runnable {
                 if (clientData == null && lastValidated == null ||System.currentTimeMillis() - lastValidated >= 30000) {
                     try {
                         bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "Retrieving OpenAI Worker Settings...");
-                        clientData = bridge.getGenerator().validateOpenAIClient(kaiName, priorityUsernames, enableChatCompletions, model, maxTokens, maxTokenLength, chatFeatures, imageTransports, threads);
+                        clientData = bridge.getGenerator().validateOpenAIClient(kaiName, priorityUsernames, enableChatCompletions, enablePromptJobs, model, maxTokens, maxTokenLength, chatFeatures, imageTransports, threads);
                         lastValidated = System.currentTimeMillis();
 
                         failedRequestsCount = 0;
@@ -128,6 +229,15 @@ public class TextHordeRunnable implements Runnable {
                     headers.put("User-Agent", "Java 11 / Java Horde Bridge " + HordeBridge.BRIDGE_VERSION);
                     try {
                         BrowserData bd = null;
+                        if (threadID > 2) {
+                            JSONObject queued = FILLER_JOBS.poll();
+                            if (queued != null) {
+                                bridge.getLogger().debug("[Thread " + threadID + "] taking queued filler " + queued.optString("id"));
+                                processJob(queued, clientData);
+                                continue;
+                            }
+                        }
+
 
                         if (useBackupCluster && backupClusterGenCount > 10) {
                             backupClusterGenCount = 0;
@@ -148,79 +258,12 @@ public class TextHordeRunnable implements Runnable {
                         if (bd != null) {
                             JSONObject popObject = new JSONObject(bd.getResponseString());
                             if (bd.getResponseCode() == 200) {
-                                if (!popObject.isNull("id")) {
-                                    currentId = popObject.getString("id");
-
-                                    JSONObject payloadObject = popObject.getJSONObject("payload");
-
-                                    bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Received a job with " + payloadObject.optInt("max_length", 80) + " tokens and " + payloadObject.optInt("max_context_length", 1024) + " max context length");
-
-                                    JSONObject generation = bridge.getGenerator().startChatGeneration(payloadObject, useBackupCluster ? backupClusterURL : clusterURL, clientData.getJSONArray("models").getString(0), apiKey, currentId);
-                                    // Prompt jobs submit "generation"; only chat jobs submit a
-                                    // message object. Sending "message" for a text job is
-                                    // rejected by Horde and the job silently expires.
-                                    boolean chatJob = payloadObject.has("messages") || payloadObject.has("messages_url");
-                                    JSONObject submitObject = new JSONObject();
-                                    if (generation != null) {
-                                        submitObject.put("id", currentId).put("model_id", clientData.getJSONArray("models").getString(0)).put("state", "ok");
-                                        if (chatJob) {
-                                            JSONObject messageObject = new JSONObject().put("role", "assistant");
-                                            if (generation.getString("finish_reason").equals("tool_calls") || generation.getString("finish_reason").equals("function_call")) {
-                                                messageObject.put("content", JSONObject.NULL);
-                                                submitObject.put("finish_reason", "tool_calls");
-                                            } else {
-                                                submitObject = submitObject.put("finish_reason", generation.optString("finish_reason", "stop"));
-                                                messageObject.put("content", generation.getString("content"));
-                                                if (generation.has("reasoning_content")) {
-                                                    messageObject = messageObject.put("reasoning_content", generation.getString("reasoning_content"));
-                                                }
-                                            }
-                                            submitObject.put("message", messageObject);
-                                        } else {
-                                            submitObject.put("generation", generation.getString("content"));
-                                        }
-                                        JSONObject usage = generation.optJSONObject("usage", new JSONObject());
-                                        for (String key : List.of("prompt_tokens", "completion_tokens")) {
-                                            int n = usage.optInt(key, -1);
-
-                                            if (n != -1) submitObject.put(key, n);
-                                        }
-                                        int rtokens = usage.optInt("completion_tokens_details", -1);
-                                        if (rtokens != -1) submitObject.put("reasoning_tokens", rtokens);
-                                    } else {
-                                        if (chatJob) submitObject.put("finish_reason", "stop");
-                                        submitObject.put("id", currentId).put("model_id", clientData.getJSONArray("models").getString(0)).put("state", "faulted").put("fault_reason", "generation_error");
-                                    }
-
-                                    bd = BrowserClient.executePOSTRequestString(new URL(useBackupCluster ? backupClusterURL : clusterURL + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
-
-                                    if (bd.getResponseCode() == 200) {
-                                        if (generation == null) {
-                                            failedRequestsCount++;
-
-                                            bridge.getLogger().error((threads > 1 ? "[Thread " + threadID + "] " : "") + "Aborting generation " + currentId + " due to exceeded 5 retry counts");
-                                        } else {
-                                            JSONObject rewardObject = new JSONObject(bd.getResponseString());
-
-                                            failedRequestsCount = 0;
-                                            if (useBackupCluster) {
-                                                backupClusterGenCount++;
-                                            }
-
-                                            bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Submitted generation " + currentId + " for the reward of " + rewardObject.getDouble("reward") + " kudos");
-                                        }
-                                    } else if (bd.getResponseCode() == 404) {
-                                        bridge.getLogger().warn((threads > 1 ? "[Thread " + threadID + "] " : "") + "Generation " + currentId + " is stale while we working on it!");
-                                    }
-
-                                    currentId = "";
+                                if (threadID <= 2 && popObject.has("id") && !popObject.isNull("id")
+                                        && isFiller(popObject) && ACTIVE.get() < threads - 2) {
+                                    FILLER_JOBS.offer(popObject);
+                                    bridge.getLogger().debug("[Thread " + threadID + "] queued filler " + popObject.optString("id"));
                                 } else {
-                                    bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "There are no generations popped to do. Skipped: " + popObject.getJSONObject("skipped").toString());
-
-                                    try {
-                                        TimeUnit.SECONDS.sleep(HordeBridge.INTERVAL);
-                                    } catch (InterruptedException ignored) {
-                                    }
+                                    processJob(popObject, clientData);
                                 }
                             } else if (bd.getResponseCode() == 400) {
                                 bridge.getLogger().debug((threads > 1 ? "[Thread " + threadID + "] " : "") + "Horde Cluster has a Validation Error! (" + popObject.getString("message") + ") Trying again in 5 seconds");
@@ -339,12 +382,12 @@ public class TextHordeRunnable implements Runnable {
                                     JSONObject payloadObject = popObject.getJSONObject("payload");
                                     payloadObject.put("quiet", true);
 
-                                    bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Received a job with " + payloadObject.optInt("max_length", 80) + " tokens and " + payloadObject.optInt("max_context_length", 1024) + " max context length");
+                                    bridge.getLogger().info((threads > 1 ? "[Thread " + threadID + "] " : "") + "Received a job " + currentId + " with " + payloadObject.optInt("max_length", 80) + " tokens and " + payloadObject.optInt("max_context_length", 1024) + " max context length");
 
                                     if (!softprompt.equals(popObject.optString("softprompt", ""))) {
                                         softprompt = popObject.optString("softprompt", "");
 
-                                        bd = BrowserClient.executePUTRequest(new URL(kaiURL + "/api/latest/config/soft_prompt/"), new JSONObject().put("value", softprompt).toString(), null);
+                                        bd = BrowserClient.executePUTRequest(new URL(kaiURL + "/api/latest/config/soft_prompt/"), new JSONObject().put("value", softprompt).toString(), new HashMap<>());
 
                                         try {
                                             TimeUnit.SECONDS.sleep(1);
@@ -352,36 +395,11 @@ public class TextHordeRunnable implements Runnable {
                                         }
                                     }
 
-                                    if (popObject.has("chat") && popObject.getBoolean("chat")) {
-                                        JSONObject generation = bridge.getGenerator().startChatGeneration(payloadObject, useBackupCluster ? backupClusterURL : clusterURL, clientData.getJSONArray("models").getString(0), apiKey, currentId);
-                                        JSONObject submitObject = new JSONObject();
-                                        if (generation != null) {
-                                            JSONObject messageObject = new JSONObject().put("role", "assistant");
-                                            if (generation.getString("finish_reason").equals("tool_calls") || generation.getString("finish_reason").equals("function_call")) {
-                                                messageObject.put("content", JSONObject.NULL);
-                                                submitObject.put("finish_reason", "tool_calls");
-                                            } else {
-                                                submitObject = submitObject.put("finish_reason", generation.optString("finish_reason", "stop"));
-                                                messageObject.put("content", generation.getString("content"));
-                                                if (generation.has("reasoning_content")) {
-                                                    messageObject = messageObject.put("reasoning_content", generation.getString("reasoning_content"));
-                                                }
-                                            }
-                                            JSONObject usage = generation.optJSONObject("usage", new JSONObject());
-                                            for (String key : List.of("prompt_tokens", "completion_tokens")) {
-                                                int n = usage.optInt(key, -1);
+                                    if (popObject.optBoolean("chat") || payloadObject.has("messages") || payloadObject.has("messages_url")) {
+                                        JSONObject generation = bridge.getGenerator().startChatGeneration(payloadObject, (useBackupCluster ? backupClusterURL : clusterURL), clientData.getJSONArray("models").getString(0), apiKey, currentId);
+                                        JSONObject submitObject = buildSubmit(generation, payloadObject, clientData.getJSONArray("models").getString(0));
 
-                                                if (n != -1) submitObject.put(key, n);
-                                            }
-                                            int rtokens = usage.optInt("completion_tokens_details", -1);
-                                            if (rtokens != -1) submitObject.put("reasoning_tokens", rtokens);
-
-                                            submitObject.put("id", currentId).put("model_id", clientData.getJSONArray("models").getString(0)).put("state", "ok").put("message", messageObject);
-                                        } else {
-                                            submitObject.put("id", currentId).put("model_id", clientData.getJSONArray("models").getString(0)).put("finish_reason", "stop").put("state", "faulted").put("fault_reason", "generation_error");
-                                        }
-
-                                        bd = BrowserClient.executePOSTRequestString(new URL(useBackupCluster ? backupClusterURL : clusterURL + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
+                                        bd = BrowserClient.executePOSTRequestString(new URL((useBackupCluster ? backupClusterURL : clusterURL) + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
 
                                         if (bd.getResponseCode() == 200) {
                                             if (generation == null) {
@@ -400,6 +418,8 @@ public class TextHordeRunnable implements Runnable {
                                             }
                                         } else if (bd.getResponseCode() == 404) {
                                             bridge.getLogger().warn("Generation " + currentId + " is stale while we working on it!");
+                                        } else {
+                                            bridge.getLogger().warn((threads > 1 ? "[Thread " + threadID + "] " : "") + "Submit rejected " + bd.getResponseCode() + " for " + currentId + ": " + bd.getResponseString());
                                         }
 
                                         currentId = "";
@@ -413,7 +433,7 @@ public class TextHordeRunnable implements Runnable {
                                             submitObject = new JSONObject().put("id", currentId).put("generation", generation).put("state", "ok").put("seed", 0);
                                         }
 
-                                        bd = BrowserClient.executePOSTRequestString(new URL(useBackupCluster ? backupClusterURL : clusterURL + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
+                                        bd = BrowserClient.executePOSTRequestString(new URL((useBackupCluster ? backupClusterURL : clusterURL) + "/api/v2/generate/text/submit"), submitObject.toString(), headers);
 
                                         if (bd.getResponseCode() == 200) {
                                             if (generation == null) {
@@ -432,6 +452,8 @@ public class TextHordeRunnable implements Runnable {
                                             }
                                         } else if (bd.getResponseCode() == 404) {
                                             bridge.getLogger().warn("Generation " + currentId + " is stale while we working on it!");
+                                        } else {
+                                            bridge.getLogger().warn((threads > 1 ? "[Thread " + threadID + "] " : "") + "Submit rejected " + bd.getResponseCode() + " for " + currentId + ": " + bd.getResponseString());
                                         }
 
                                         currentId = "";

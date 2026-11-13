@@ -45,9 +45,8 @@ public class HordeBridge {
     private static int maxTokenLength = 2048;
     private static String[] chatFeatures = new String[0];
     private static String[] imageTransports = new String[0];
-    private static int threads = 1;
 
-    private static final ExecutorService service = Executors.newSingleThreadExecutor();
+    private static int BRIDGE_PROCS = 1;
 
     public static void main(String[] args) {
         AnsiConsole.systemInstall();
@@ -69,10 +68,9 @@ public class HordeBridge {
         Option disable_kobold_client_verifier = Option.builder("d").longOpt("disable_kobold_client_verifier").argName("disable_kobold_client_verifier").hasArg().valueSeparator(',').desc("Disable Kobold Client Verifier, only use if you're not using a KoboldAI supported endpoint program. Disables OpenAI model fetching if specified. (true/false)").numberOfArgs(1).build();
         Option oModel = Option.builder("o").longOpt("model").argName("model").hasArg().valueSeparator(',').desc("Set the model optionally if Kobold Client Verifier is disabled").numberOfArgs(1).build();
         Option max_tokens = Option.builder("m").longOpt("max_tokens").argName("max_tokens").hasArg().valueSeparator(',').desc("Set the max tokens if Kobold Client Verifier is disabled").numberOfArgs(1).build();
-        Option max_token_length = Option.builder("m").longOpt("max_token_length").argName("max_token_length").hasArg().valueSeparator(',').desc("Set the max token length if Kobold Client Verifier is disabled").numberOfArgs(1).build();
+        Option max_token_length = Option.builder("M").longOpt("max_token_length").argName("max_token_length").hasArg().valueSeparator(',').desc("Set the max token length if Kobold Client Verifier is disabled").numberOfArgs(1).build();
         Option chat_features = Option.builder("C").longOpt("chat_features").argName("chat_features").hasArg().valueSeparator(',').desc("The chat features to enable for the text worker").numberOfArgs(1).build();
         Option image_transports = Option.builder("I").longOpt("image_transports").argName("image_transports").hasArg().valueSeparator(',').desc("The image transports to enable for the text worker (base64, url)").numberOfArgs(1).build();
-        Option oThreads = Option.builder("T").longOpt("threads").argName("threads").hasArg().valueSeparator(',').desc("The number of threads to support for your worker").numberOfArgs(1).build();
 
         options.addOption(interval);
         options.addOption(config);
@@ -92,7 +90,6 @@ public class HordeBridge {
         options.addOption(max_token_length);
         options.addOption(chat_features);
         options.addOption(image_transports);
-        options.addOption(oThreads);
 
         HelpFormatter helper = new HelpFormatter();
         try {
@@ -103,9 +100,17 @@ public class HordeBridge {
 
             INSTANCE.getLogger().info("Starting Java Horde Worker " + kaiName);
 
+            String procsEnv = System.getenv("BRIDGE_PROCS");
+            if (procsEnv != null && !procsEnv.isEmpty()) {
+                try {
+                    BRIDGE_PROCS = Math.max(1, Integer.parseInt(procsEnv));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            ExecutorService service = Executors.newFixedThreadPool(BRIDGE_PROCS);
             if (workerType.equals("text")) {
-                for (int i = 0; i < threads; i++) {
-                    service.execute(new TextHordeRunnable(INSTANCE, (i + 1), kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames, enableChatCompletions, enablePromptJobs, disableKoboldClientVerifier, model, maxTokens, maxTokenLength, chatFeatures, imageTransports, threads));
+                for (int i = 1; i <= BRIDGE_PROCS; i++) {
+                    service.execute(new TextHordeRunnable(INSTANCE, i, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames, enableChatCompletions, enablePromptJobs, disableKoboldClientVerifier, model, maxTokens, maxTokenLength, chatFeatures, imageTransports, BRIDGE_PROCS));
                 }
             } else if (workerType.equals("interrogation")) {
                 service.execute(new InterrogationHordeRunnable(INSTANCE, kaiURL, kaiName, kaiAPIKey, clusterURL, backupClusterURL, priorityUsernames, forms));
@@ -130,10 +135,10 @@ public class HordeBridge {
 
         if (!configFile.exists()) {
             if (cmd.hasOption("worker_type")) {
-                if (!cmd.getOptionValue("worker_type").equals("interrogation") || !cmd.getOptionValue("worker_type").equals("text")) {
-                    workerType = "text";
-                } else {
+                if (cmd.getOptionValue("worker_type").equals("interrogation") || cmd.getOptionValue("worker_type").equals("text")) {
                     workerType = cmd.getOptionValue("worker_type");
+                } else {
+                    workerType = "text";
                 }
             }
             if (cmd.hasOption("kai_url")) {
@@ -151,8 +156,8 @@ public class HordeBridge {
             if (cmd.hasOption("cluster_url")) {
                 clusterURL = cmd.getOptionValue("cluster_url");
             }
-            if (cmd.hasOption("cluster_url")) {
-                backupClusterURL = cmd.getOptionValue("cluster_url");
+            if (cmd.hasOption("backup_cluster_url")) {
+                backupClusterURL = cmd.getOptionValue("backup_cluster_url");
             }
             if (cmd.hasOption("priority_usernames")) {
                 priorityUsernames = cmd.getOptionValues("priority_usernames");
@@ -184,9 +189,6 @@ public class HordeBridge {
             if (cmd.hasOption("image_transports")) {
                 imageTransports = cmd.getOptionValues("image_transports");
             }
-            if (cmd.hasOption("threads")) {
-                threads = Integer.parseInt(cmd.getOptionValue("threads"));
-            }
         } else {
             ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
 
@@ -197,7 +199,7 @@ public class HordeBridge {
                     workerType = config.getWorkerType();
                 }
                 kaiURL = config.getKaiURL();
-                if (!kaiName.isEmpty()) {
+                if (config.getWorkerName() != null && !config.getWorkerName().isEmpty()) {
                     kaiName = config.getWorkerName();
                 }
                 kaiAPIKey = config.getApiKey();
@@ -213,7 +215,6 @@ public class HordeBridge {
                 maxTokenLength = config.getMaxTokenLength();
                 chatFeatures = config.getChatFeatures().toArray(new String[0]);
                 imageTransports = config.getImageTransports().toArray(new String[0]);
-                threads = config.getThreads();
             } catch (IOException e) {
                 logger.error("Couldn't load configuration! " + e.getMessage() + " Stopping Java Horde Bridge");
                 System.exit(0);
@@ -225,7 +226,7 @@ public class HordeBridge {
         } else if (workerType.equals("text")) {
             if (!enablePromptJobs && !enableChatCompletions) {
                 logger.error("Prompt Jobs should be enabled if Chat Completions is false, or Chat Completions should be enabled, or both!");
-                return;
+                System.exit(0);
             }
             kaiGenerator = new KAIGenerator(this, kaiURL);
         }

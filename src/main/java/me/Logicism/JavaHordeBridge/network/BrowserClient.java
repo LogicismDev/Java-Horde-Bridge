@@ -1,20 +1,15 @@
 package me.Logicism.JavaHordeBridge.network;
 
-import org.json.JSONObject;
 
 import java.io.*;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.http.HttpClient;
-import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Flow;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class BrowserClient {
 
@@ -32,7 +27,11 @@ public class BrowserClient {
     }
 
     public static BrowserData executeGETRequestString(URL url, Map<String, String> headers) throws IOException, URISyntaxException, InterruptedException {
-        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofSeconds(30)).uri(url.toURI()).GET();
+        return executeGETRequestString(url, headers, 30);
+    }
+
+    public static BrowserData executeGETRequestString(URL url, Map<String, String> headers, int timeoutSeconds) throws IOException, URISyntaxException, InterruptedException {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().timeout(Duration.ofSeconds(timeoutSeconds)).uri(url.toURI()).GET();
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             requestBuilder = requestBuilder.header(entry.getKey(), entry.getValue());
         }
@@ -51,10 +50,6 @@ public class BrowserClient {
         HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
 
         return new BrowserData(response.uri().toURL().toString(), response.headers().map(), response.statusCode());
-    }
-
-    public static BrowserData executePOSTRequest(URL url, String data, Map<String, String> headers) throws IOException, InterruptedException, URISyntaxException {
-        return executePOSTRequest(url, data, headers, 30);
     }
 
     public static BrowserData executePOSTRequest(URL url, String data, Map<String, String> headers, int timeoutSeconds) throws IOException, InterruptedException, URISyntaxException {
