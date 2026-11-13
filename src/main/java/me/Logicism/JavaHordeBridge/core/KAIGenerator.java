@@ -467,15 +467,15 @@ public class KAIGenerator {
         // jobs routinely send 8-12. Keep the first four non-empty ones.
         if (params.has("stop_sequence")) {
             Object rawStops = params.opt("stop_sequence");
-            if (rawStops instanceof JSONArray stopArray) {
+            if (rawStops instanceof JSONArray) {
                 JSONArray stops = new JSONArray();
-                for (int i = 0; i < stopArray.length() && stops.length() < 4; i++) {
-                    String stop = stopArray.optString(i, "");
+                for (int i = 0; i < ((JSONArray) rawStops).length() && stops.length() < 4; i++) {
+                    String stop = ((JSONArray) rawStops).optString(i, "");
                     if (!stop.isEmpty()) stops.put(stop);
                 }
                 if (!stops.isEmpty()) convertedPayload.put("stop", stops);
-            } else if (rawStops instanceof String stop && !stop.isEmpty()) {
-                convertedPayload.put("stop", stop);
+            } else if (rawStops instanceof String && !((String) rawStops).isEmpty()) {
+                convertedPayload.put("stop", rawStops);
             }
         }
         for (String key : List.of("reasoning_effort", "tools", "tool_choice",
